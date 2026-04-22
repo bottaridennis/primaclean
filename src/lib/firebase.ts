@@ -23,8 +23,9 @@ let finalConfig = firebaseConfig;
 if (!hasEnvVars) {
   try {
     // In local development / AI Studio, fallback to the auto-generated config
+    // We use @vite-ignore to prevent the build tool from trying to resolve this file at build time
     // @ts-ignore - File might not exist in production build
-    const localConfig = await import('../../firebase-applet-config.json');
+    const localConfig = await import(/* @vite-ignore */ '../../firebase-applet-config.json');
     finalConfig = {
       ...localConfig.default,
       firestoreDatabaseId: localConfig.default.firestoreDatabaseId
