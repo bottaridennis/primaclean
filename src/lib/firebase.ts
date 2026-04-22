@@ -20,18 +20,19 @@ const hasEnvVars = !!import.meta.env.VITE_FIREBASE_API_KEY;
 
 let finalConfig = firebaseConfig;
 
-if (!hasEnvVars) {
+if (import.meta.env.DEV && !hasEnvVars) {
   try {
     // In local development / AI Studio, fallback to the auto-generated config
-    // We use @vite-ignore to prevent the build tool from trying to resolve this file at build time
+    // Using a variable for the path helps avoid static analysis during build
+    const configPath = '../../firebase-applet-config.json';
     // @ts-ignore - File might not exist in production build
-    const localConfig = await import(/* @vite-ignore */ '../../firebase-applet-config.json');
+    const localConfig = await import(/* @vite-ignore */ configPath);
     finalConfig = {
       ...localConfig.default,
       firestoreDatabaseId: localConfig.default.firestoreDatabaseId
     };
   } catch (e) {
-    console.warn("Firebase configuration missing. Please check your environment variables or local config.");
+    console.warn("Firebase configuration missing local config file.");
   }
 }
 
