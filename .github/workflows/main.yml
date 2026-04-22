@@ -40,7 +40,9 @@ jobs:
           VITE_FIREBASE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_DATABASE_ID }}
 
       - name: Deploy to Firebase
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        if: |
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 
+          secrets.FIREBASE_SERVICE_ACCOUNT != ''
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
