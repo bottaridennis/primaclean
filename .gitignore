@@ -21,6 +21,7 @@ yarn-error.log*
 firebase-debug.log*
 firestore-debug.log*
 ui-debug.log*
+firebase-applet-config.json
 
 # IDE / Editor
 .vscode/

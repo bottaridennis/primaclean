@@ -23,8 +23,8 @@ export default function Layout({ user, children, activeTab, setActiveTab }: Prop
               <Shield size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-tight">PRIMA-CLEAN</h1>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Gestione Turni Aziendali</p>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-tight uppercase">PrimaClean</h1>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">dennisbottari.it</p>
             </div>
           </div>
           
