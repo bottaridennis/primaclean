@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "System users (admins and employees)",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string", "description": "First name" },
+        "cognome": { "type": "string", "description": "Last name" },
+        "email": { "type": "string", "description": "Email address" },
+        "role": { "type": "string", "enum": ["admin", "employee"] },
+        "shopIds": { 
+          "type": "array",
+          "description": "Assigned shop IDs" 
+        },
+        "isApproved": { "type": "boolean", "description": "Admin approval status" },
+        "canSeeColleagues": { "type": "boolean", "description": "Permission to see shop colleagues shifts" }
+      },
+      "required": ["nome", "cognome", "email", "role", "isApproved"]
+    },
+    "shops": {
+      "title": "Shop",
+      "description": "Establishment details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Shop name" },
+        "closedHolidays": {
+          "type": "array",
+          "description": "List of dates (ISO format) when shop is closed"
+        }
+      },
+      "required": ["name"]
+    },
+    "shifts": {
+      "title": "Shift",
+      "description": "Working shifts for employees",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The employee ID" },
+        "shopId": { "type": "string", "description": "The shop ID where the shift occurs" },
+        "date": { "type": "string", "description": "Shift date (ISO string YYYY-MM-DD)" },
+        "shiftType": { "type": "string", "enum": ["morning", "afternoon", "full-day"], "description": "Type of shift" }
+      },
+      "required": ["userId", "shopId", "date", "shiftType"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "Registered users"
+    },
+    "/shops/{shopId}": {
+      "schema": "shops",
+      "description": "Managed shops"
+    },
+    "/shifts/{shiftId}": {
+      "schema": "shifts",
+      "description": "Work shifts"
+    }
+  }
+}
