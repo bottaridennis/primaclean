@@ -35,7 +35,7 @@ export default function PendingExchanges({ user, employees }: Props) {
 
     const handleExchanges = (docs: any[]) => {
       setExchanges(prev => {
-        const newMap = new Map(prev.map(e => [e.id, e]));
+        const newMap = new Map<string, ShiftExchange>(prev.map(e => [e.id!, e]));
         docs.forEach(doc => newMap.set(doc.id, { id: doc.id, ...doc.data() } as ShiftExchange));
         return Array.from(newMap.values()).filter(e => e.status === 'pending');
       });
