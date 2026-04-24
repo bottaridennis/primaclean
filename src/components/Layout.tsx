@@ -1,7 +1,7 @@
 import React from 'react';
 import { User } from '../types';
 import { auth } from '../lib/firebase';
-import { LogOut, User as UserIcon, Shield, LayoutDashboard, Building2 } from 'lucide-react';
+import { LogOut, User as UserIcon, Shield, LayoutDashboard, Building2, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface Props {
@@ -37,6 +37,13 @@ export default function Layout({ user, children, activeTab, setActiveTab }: Prop
             onClick={() => setActiveTab('shifts')}
             icon={<UserIcon size={20} />}
             label="Turni"
+            sidebar={true}
+          />
+          <NavButton
+            active={activeTab === 'logs'}
+            onClick={() => setActiveTab('logs')}
+            icon={<FileText size={20} />}
+            label="Log Scambi"
             sidebar={true}
           />
           <NavButton
@@ -133,6 +140,7 @@ export default function Layout({ user, children, activeTab, setActiveTab }: Prop
              activeTab === 'employees' ? 'Gestione Staff' :
              activeTab === 'shops' ? 'Negozi & Sedi' :
              activeTab === 'shifts' ? 'Pianificazione Turni' :
+             activeTab === 'logs' ? 'Log Scambi Turno' :
              activeTab === 'schedule' ? 'Agenda Settimanale' : 'Il mio Profilo'}
           </h2>
           <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">Bentornato, {user.nome}</p>

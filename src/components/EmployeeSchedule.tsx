@@ -3,9 +3,11 @@ import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { User, Shop, Shift } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, MapPin, Store, ChevronRight } from 'lucide-react';
+import { Clock, MapPin, Store, ChevronRight, ArrowRightLeft } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
+import ShiftExchangeModal from './ShiftExchangeModal';
+import PendingExchanges from './PendingExchanges';
 
 interface Props {
   user: User;
@@ -16,6 +18,7 @@ export default function EmployeeSchedule({ user }: Props) {
   const [shops, setShops] = useState<Shop[]>([]);
   const [activeShopId, setActiveShopId] = useState<string>('');
   const [employees, setEmployees] = useState<Record<string, string>>({});
+  const [selectedMyShift, setSelectedMyShift] = useState<Shift | null>(null);
 
   const isAdmin = user.role === 'admin';
 
@@ -105,6 +108,8 @@ export default function EmployeeSchedule({ user }: Props) {
         ))}
       </div>
 
+      <PendingExchanges user={user} employees={employees} />
+
       <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 italic-text-none">
         <div className="flex items-center justify-between mb-8 px-2">
           <div>
@@ -184,8 +189,19 @@ export default function EmployeeSchedule({ user }: Props) {
                           </p>
                           <Clock size={12} className={shift.userId === user.id ? 'text-white/50' : 'text-slate-300'} />
                         </div>
+                        {shift.userId === user.id && (isAdmin || user.canSeeColleagues) && (
+                          <div className="mt-2 pt-2 border-t border-indigo-500/30 flex justify-end">
+                             <button
+                               onClick={() => setSelectedMyShift(shift)}
+                               className="flex items-center gap-1 text-[9px] font-bold text-white uppercase tracking-wider hover:text-indigo-200 transition"
+                             >
+                               <ArrowRightLeft size={10} />
+                               Scambia
+                             </button>
+                          </div>
+                        )}
                         {shift.userId === user.id && (
-                          <div className="absolute top-0 right-0 p-1 opacity-20">
+                          <div className="absolute top-0 right-0 p-1 opacity-10 pointer-events-none">
                             <Store size={32} />
                           </div>
                         )}
@@ -198,6 +214,17 @@ export default function EmployeeSchedule({ user }: Props) {
           })}
         </div>
       </div>
+
+      {selectedMyShift && (
+        <ShiftExchangeModal
+          isOpen={!!selectedMyShift}
+          onClose={() => setSelectedMyShift(null)}
+          myShift={selectedMyShift}
+          allShifts={shifts}
+          employees={employees}
+          user={user}
+        />
+      )}
     </div>
   );
 }

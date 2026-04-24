@@ -23,3 +23,29 @@ export interface Shift {
   date: string; // YYYY-MM-DD
   shiftType: 'morning' | 'afternoon' | 'full-day';
 }
+
+export interface ShiftExchange {
+  id: string;
+  requesterId: string;
+  requesterShiftId: string;
+  targetUserId: string;
+  targetShiftId: string;
+  shopId: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: string;
+}
+
+export interface ExchangeLog {
+  id?: string;
+  requesterId: string;
+  requesterName: string;
+  targetUserId: string;
+  targetUserName: string;
+  requesterShiftDate: string;
+  requesterShiftType: string;
+  targetShiftDate: string;
+  targetShiftType: string;
+  shopId: string;
+  acceptedAt: string;
+}
+

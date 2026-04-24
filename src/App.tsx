@@ -10,6 +10,7 @@ import ShopManager from './components/ShopManager';
 import ShiftCreator from './components/ShiftCreator';
 import EmployeeSchedule from './components/EmployeeSchedule';
 import EmployeeManager from './components/EmployeeManager';
+import ExchangeLogs from './components/ExchangeLogs';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
@@ -19,34 +20,51 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
+    let unsubscribeUser: (() => void) | null = null;
+    
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // Listen to user document
-        const unsubscribeUser = onSnapshot(doc(db, 'users', firebaseUser.uid), (snapshot) => {
-          if (snapshot.exists()) {
-            const userData = { id: snapshot.id, ...snapshot.data() } as User;
-            setCurrentUser(userData);
-            
-            // Set default tab based on role
-            if (userData.role === 'admin') {
-              setActiveTab('dashboard');
+        unsubscribeUser = onSnapshot(
+          doc(db, 'users', firebaseUser.uid), 
+          (snapshot) => {
+            if (snapshot.exists()) {
+              const userData = { id: snapshot.id, ...snapshot.data() } as User;
+              setCurrentUser(userData);
+              
+              // Set default tab based on role
+              if (userData.role === 'admin') {
+                setActiveTab('dashboard');
+              } else {
+                setActiveTab('schedule');
+              }
             } else {
-              setActiveTab('schedule');
+               // Handle case where user document doesn't exist yet (handled in login but safe to have fallback)
+               setCurrentUser(null);
             }
-          } else {
-             // Handle case where user document doesn't exist yet (handled in login but safe to have fallback)
-             setCurrentUser(null);
+            setLoading(false);
+          },
+          (err) => {
+            console.error('App.tsx user snapshot error:', err);
+            setLoading(false);
           }
-          setLoading(false);
-        });
-        return () => unsubscribeUser();
+        );
       } else {
+        if (unsubscribeUser) {
+          unsubscribeUser();
+          unsubscribeUser = null;
+        }
         setCurrentUser(null);
         setLoading(false);
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeUser) {
+        unsubscribeUser();
+      }
+    };
   }, []);
 
   if (loading || (auth.currentUser && !currentUser)) {
@@ -142,6 +160,7 @@ export default function App() {
               {activeTab === 'employees' && <EmployeeManager />}
               {activeTab === 'shops' && <ShopManager />}
               {activeTab === 'shifts' && <ShiftCreator />}
+              {activeTab === 'logs' && <ExchangeLogs />}
               {activeTab === 'schedule' && <EmployeeSchedule user={currentUser} />}
             </>
           ) : (
