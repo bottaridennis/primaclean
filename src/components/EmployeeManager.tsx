@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { User } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, User as UserIcon, ShieldAlert, Check, X, ShieldCheck, AlertTriangle, Edit2, Save } from 'lucide-react';
+import { Shield, User as UserIcon, ShieldAlert, Check, X, ShieldCheck, AlertTriangle, Edit2, Save, Trash2, Ban, CheckCircle } from 'lucide-react';
 
 export default function EmployeeManager() {
   // ...
@@ -48,6 +48,7 @@ export default function EmployeeManager() {
   
   // Promotion State
   const [promotingUser, setPromotingUser] = useState<User | null>(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
   const [userInputCode, setUserInputCode] = useState('');
   const [error, setError] = useState('');
@@ -125,6 +126,26 @@ export default function EmployeeManager() {
     }
   };
 
+  const toggleBlockUser = async (user: User) => {
+    try {
+      await updateDoc(doc(db, 'users', user.id), {
+        isBlocked: !user.isBlocked
+      });
+    } catch (err) {
+      console.error("Error toggling user block status:", err);
+    }
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'users', userToDelete.id));
+      setUserToDelete(null);
+    } catch (err) {
+      console.error("Error deleting user:", err);
+    }
+  };
+
   if (isLoading) return <div className="flex justify-center p-8">Caricamento dipendenti...</div>;
 
   return (
@@ -150,19 +171,20 @@ export default function EmployeeManager() {
               user.role === 'admin' ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200'
             } group transition-all hover:shadow-md`}
           >
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-lg shadow-sm border ${
+                <div className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center font-bold text-lg shadow-sm border ${
                   user.role === 'admin' ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
                   {user.nome[0]}
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 leading-tight">{user.nome} {user.cognome}</h3>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">{user.email}</p>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-slate-900 leading-tight break-words">{user.nome} {user.cognome}</h3>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest break-all">{user.email}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-50">
                 <button
                   onClick={() => handleEditClick(user)}
                   className="p-2 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm"
@@ -170,7 +192,25 @@ export default function EmployeeManager() {
                 >
                   <Edit2 size={16} />
                 </button>
-                <div className={`p-2 rounded-xl border ${
+                <button
+                  onClick={() => toggleBlockUser(user)}
+                  className={`p-2 rounded-xl border transition-all shadow-sm ${
+                    user.isBlocked 
+                      ? 'bg-red-50 border-red-100 text-red-500 hover:bg-green-50 hover:border-green-100 hover:text-green-500' 
+                      : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-red-50 hover:border-red-100 hover:text-red-500'
+                  }`}
+                  title={user.isBlocked ? 'Riattiva Utente' : 'Sospendi Utente'}
+                >
+                  {user.isBlocked ? <CheckCircle size={16} /> : <Ban size={16} />}
+                </button>
+                <button
+                  onClick={() => setUserToDelete(user)}
+                  className="p-2 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 hover:text-red-600 hover:border-red-100 transition-all shadow-sm"
+                  title="Elimina Profilo"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <div className={`p-2 rounded-xl border ml-auto ${
                   user.role === 'admin' ? 'bg-amber-100 border-amber-200 text-amber-600' : 'bg-slate-50 border-slate-100 text-slate-400'
                 }`}>
                   {user.role === 'admin' ? <ShieldCheck size={18} /> : <UserIcon size={18} />}
@@ -296,6 +336,44 @@ export default function EmployeeManager() {
                     Conferma
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Deletion Modal */}
+      <AnimatePresence>
+        {userToDelete && (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[110] backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl border border-slate-200 text-center"
+            >
+              <div className="w-20 h-20 bg-red-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                <Trash2 className="text-red-600 w-10 h-10" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 mb-2 italic">Elimina Profilo</h3>
+              <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                Sei sicuro di voler eliminare permanentemente il profilo di <span className="font-bold text-slate-900">{userToDelete.nome} {userToDelete.cognome}</span>?<br/>
+                Questa azione rimuoverà l'utente dal sistema e non potrà essere annullata.
+              </p>
+              
+              <div className="flex flex-col md:flex-row gap-3">
+                <button
+                  onClick={() => setUserToDelete(null)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={confirmDeleteUser}
+                  className="flex-[2] py-4 bg-red-600 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-100 transition-all font-black"
+                >
+                  Conferma Eliminazione
+                </button>
               </div>
             </motion.div>
           </div>

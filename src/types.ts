@@ -6,6 +6,7 @@ export interface User {
   role: 'admin' | 'employee';
   shopIds: string[];
   isApproved: boolean;
+  isBlocked: boolean;
   canSeeColleagues: boolean;
 }
 

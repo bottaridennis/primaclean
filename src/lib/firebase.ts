@@ -1,10 +1,9 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Handle configuration from environment variables (GitHub Secrets) 
-// or fallback to local config file if available
-const firebaseConfig = {
+// 1. Try to get config from environment variables
+const envConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -15,27 +14,29 @@ const firebaseConfig = {
   firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID,
 };
 
-// Simple helper to check if env vars are present
-const hasEnvVars = !!import.meta.env.VITE_FIREBASE_API_KEY;
+// 2. Fallback to local config if environment variables are missing
+let finalConfig = envConfig;
 
-let finalConfig = firebaseConfig;
-
-if (import.meta.env.DEV && !hasEnvVars) {
+if (!envConfig.apiKey) {
   try {
-    // In local development / AI Studio, fallback to the auto-generated config
-    // Using a variable for the path helps avoid static analysis during build
-    const configPath = '../../firebase-applet-config.json';
-    // @ts-ignore - File might not exist in production build
-    const localConfig = await import(/* @vite-ignore */ configPath);
-    finalConfig = {
-      ...localConfig.default,
-      firestoreDatabaseId: localConfig.default.firestoreDatabaseId
-    };
-  } catch (e) {
-    console.warn("Firebase configuration missing local config file.");
+    // Dynamic import to avoid build errors if the file is missing in prod
+    // @ts-ignore
+    const local = await import('../../firebase-applet-config.json');
+    finalConfig = local.default;
+  } catch (error) {
+    // Fallback error logged to console
+    console.warn("Firebase environment variables not set, and firebase-applet-config.json not found.");
   }
 }
 
-const app = initializeApp(finalConfig);
+// 3. Initialize Firebase
+if (!finalConfig || !finalConfig.apiKey) {
+  throw new Error("Firebase API Key is missing. Please check your .env or firebase-applet-config.json");
+}
+
+const app = getApps().length === 0 ? initializeApp(finalConfig) : getApp();
+
+// Export services
 export const db = getFirestore(app, finalConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+

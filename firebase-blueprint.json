@@ -14,9 +14,10 @@
           "description": "Assigned shop IDs" 
         },
         "isApproved": { "type": "boolean", "description": "Admin approval status" },
+        "isBlocked": { "type": "boolean", "description": "Suspension status" },
         "canSeeColleagues": { "type": "boolean", "description": "Permission to see shop colleagues shifts" }
       },
-      "required": ["nome", "cognome", "email", "role", "isApproved"]
+      "required": ["nome", "cognome", "email", "role", "isApproved", "isBlocked"]
     },
     "shops": {
       "title": "Shop",

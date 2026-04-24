@@ -50,12 +50,20 @@ export default function EmployeeSchedule({ user }: Props) {
       setEmployees(names);
     });
 
-    const unsubscribeShifts = onSnapshot(
-      query(collection(db, 'shifts'), where('shopId', '==', activeShopId)),
-      (snapshot) => {
-        setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
-      }
-    );
+    const baseQuery = collection(db, 'shifts');
+    let qShifts;
+
+    if (isAdmin || user.canSeeColleagues) {
+      qShifts = query(baseQuery, where('shopId', '==', activeShopId));
+    } else {
+      // Employees who CANNOT see colleagues must filter by their own userId
+      // and also shopId to satisfy the composite rule requirements
+      qShifts = query(baseQuery, where('shopId', '==', activeShopId), where('userId', '==', user.id));
+    }
+
+    const unsubscribeShifts = onSnapshot(qShifts, (snapshot) => {
+      setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+    });
 
     return () => {
       unsubscribeEmployees();

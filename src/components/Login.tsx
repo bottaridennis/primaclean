@@ -34,6 +34,7 @@ export default function Login() {
           role: 'employee',
           shopIds: [],
           isApproved: false,
+          isBlocked: false,
           canSeeColleagues: false
         });
       }
@@ -67,6 +68,7 @@ export default function Login() {
           role: 'employee',
           shopIds: [],
           isApproved: false,
+          isBlocked: false,
           canSeeColleagues: false
         });
       } catch (err: any) {

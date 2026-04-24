@@ -8,6 +8,9 @@ export default defineConfig(({mode}) => {
   return {
     base: './', // Serve assets with relative paths instead of absolute (vital for GitHub Pages subfolders)
     plugins: [react(), tailwindcss()],
+    build: {
+      target: 'esnext'
+    },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },

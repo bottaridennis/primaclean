@@ -67,6 +67,32 @@ export default function App() {
     return <Login />;
   }
 
+  if (currentUser.isBlocked && currentUser.role !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white p-10 rounded-[3rem] shadow-xl max-w-sm w-full text-center border-2 border-red-100"
+        >
+          <div className="w-20 h-20 bg-red-50 rounded-full mx-auto mb-6 flex items-center justify-center">
+            <ShieldAlert className="text-red-500 w-10 h-10" />
+          </div>
+          <h1 className="text-2xl font-black text-slate-900 mb-2 italic">Accesso Bloccato</h1>
+          <p className="text-slate-500 mb-8 text-sm">
+            Gentile <span className="font-bold text-slate-900">{currentUser.nome}</span>, il tuo accesso al sistema è stato sospeso. Contatta l'amministrazione per chiarimenti.
+          </p>
+          <button
+            onClick={() => auth.signOut()}
+            className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all text-xs uppercase tracking-widest"
+          >
+            Esci dal sistema
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   if (!currentUser.isApproved && currentUser.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
