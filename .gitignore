@@ -42,8 +42,6 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
-firebase-applet-config.json
-firestore.rules
 
 # Exceptions
 !.env.example

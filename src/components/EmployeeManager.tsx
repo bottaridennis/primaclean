@@ -225,29 +225,32 @@ export default function EmployeeManager() {
         ))}
       </div>
 
-      {/* Promotion Security Challenge Modal */}
+      {/* Promotion Security Challenge Modal - ADAPTIVE */}
       <AnimatePresence>
         {promotingUser && (
           <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[3rem] p-10 w-full max-w-md shadow-2xl border border-slate-200 text-center"
+              initial={{ y: '100%', opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: '100%', opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="bg-white rounded-[3rem] md:rounded-[3rem] p-8 md:p-10 w-full max-w-md shadow-2xl border border-slate-200 text-center fixed bottom-0 left-0 right-0 md:relative md:bottom-auto md:left-auto md:right-auto"
             >
-              <div className="w-20 h-20 bg-amber-100 rounded-full mx-auto mb-6 flex items-center justify-center border-4 border-amber-50">
-                <ShieldAlert className="text-amber-600 w-10 h-10" />
+              {/* Handle for mobile bottom sheet */}
+              <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
+              
+              <div className="w-16 h-16 md:w-20 md:h-20 bg-amber-100 rounded-full mx-auto mb-6 flex items-center justify-center border-4 border-amber-50">
+                <ShieldAlert className="text-amber-600 w-8 h-8 md:w-10 md:h-10" />
               </div>
               
-              <h3 className="text-2xl font-black text-slate-900 mb-2">Sicurezza Richiesta</h3>
-              <p className="text-slate-500 text-sm mb-8">
+              <h3 className="text-xl md:text-2xl font-black text-slate-900 mb-2">Sicurezza Richiesta</h3>
+              <p className="text-slate-500 text-xs md:text-sm mb-6 md:mb-8">
                 Stai promuovendo <span className="font-bold text-slate-900">{promotingUser.nome}</span> ad <span className="text-amber-600 font-bold uppercase tracking-widest text-xs">Amministratore</span>.
-                Inserisci il codice di conferma generato per continuare.
               </p>
 
-              <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 mb-8 border-dashed">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Codice di Verifica</p>
-                <div className="text-4xl font-black text-indigo-600 tracking-[0.5em] select-none">
+              <div className="bg-slate-50 p-4 md:p-6 rounded-[2rem] border border-slate-100 mb-6 md:mb-8 border-dashed">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 md:mb-3">Codice di Verifica</p>
+                <div className="text-3xl md:text-4xl font-black text-indigo-600 tracking-[0.5em] select-none">
                   {verificationCode}
                 </div>
               </div>
@@ -263,11 +266,11 @@ export default function EmployeeManager() {
                       setUserInputCode(e.target.value);
                       setError('');
                     }}
-                    className={`w-full p-5 bg-slate-50 border ${error ? 'border-red-300' : 'border-slate-100'} rounded-2xl text-center text-xl font-black tracking-[0.3em] outline-none focus:ring-4 focus:ring-indigo-100 transition-all`}
+                    className={`w-full p-4 md:p-5 bg-slate-50 border ${error ? 'border-red-300' : 'border-slate-100'} rounded-2xl text-center text-lg md:text-xl font-black tracking-[0.3em] outline-none focus:ring-4 focus:ring-indigo-100 transition-all`}
                   />
                   {userInputCode === verificationCode && userInputCode !== '' && (
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500">
-                      <Check size={24} strokeWidth={4} />
+                      <Check size={20} strokeWidth={4} />
                     </div>
                   )}
                 </div>
@@ -278,7 +281,7 @@ export default function EmployeeManager() {
                   </p>
                 )}
 
-                <div className="flex gap-3 pt-4">
+                <div className="flex gap-3 pt-2">
                   <button
                     onClick={() => setPromotingUser(null)}
                     className="flex-1 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
@@ -290,7 +293,7 @@ export default function EmployeeManager() {
                     disabled={userInputCode.length !== 6}
                     className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:grayscale transition-all active:scale-95"
                   >
-                    Conferma Promozione
+                    Conferma
                   </button>
                 </div>
               </div>
@@ -299,66 +302,67 @@ export default function EmployeeManager() {
         )}
       </AnimatePresence>
 
-      {/* Editing Modal - MOBILE BOTTOM SHEET */}
+      {/* Editing Modal - ADAPTIVE MODAL/SHEET */}
       <AnimatePresence>
         {editingUser && (
-          <>
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-end md:items-center justify-center p-0 md:p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setEditingUser(null)}
-              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100]"
+              className="absolute inset-0"
             />
             <motion.div
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed inset-x-0 bottom-0 bg-white rounded-t-[3rem] p-8 pb-12 z-[101] shadow-2xl overflow-y-auto max-h-[92vh]"
+              className="bg-white rounded-t-[3rem] md:rounded-[3rem] p-8 pb-12 md:pb-10 w-full max-w-xl shadow-2xl overflow-y-auto max-h-[92vh] md:max-h-[85vh] relative z-[101]"
             >
               <div className="flex flex-col items-center mb-8">
-                <div className="w-12 h-1.5 bg-slate-200 rounded-full mb-6" />
+                <div className="w-12 h-1.5 bg-slate-200 rounded-full mb-6 md:hidden" />
                 <div className="text-center">
-                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-1">Gestione Rapida</p>
+                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-1">Anagrafica</p>
                   <h3 className="text-2xl font-black text-slate-900 italic italic-text-none">Scheda Dipendente</h3>
                 </div>
               </div>
 
               <form onSubmit={handleUpdateUser} className="space-y-6">
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Anagrafica</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        className="flex-1 h-14 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-black italic italic-text-none outline-none focus:ring-4 focus:ring-indigo-50"
-                        value={editFormData.nome}
-                        placeholder="Nome"
-                        onChange={e => setEditFormData({...editFormData, nome: e.target.value})}
-                      />
-                      <input
-                        type="text"
-                        className="flex-1 h-14 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-black italic italic-text-none outline-none focus:ring-4 focus:ring-indigo-50"
-                        value={editFormData.cognome}
-                        placeholder="Cognome"
-                        onChange={e => setEditFormData({...editFormData, cognome: e.target.value})}
-                      />
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome</label>
+                    <input
+                      type="text"
+                      className="h-14 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-black italic italic-text-none outline-none focus:ring-4 focus:ring-indigo-50"
+                      value={editFormData.nome}
+                      placeholder="Nome"
+                      onChange={e => setEditFormData({...editFormData, nome: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cognome</label>
+                    <input
+                      type="text"
+                      className="h-14 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-black italic italic-text-none outline-none focus:ring-4 focus:ring-indigo-50"
+                      value={editFormData.cognome}
+                      placeholder="Cognome"
+                      onChange={e => setEditFormData({...editFormData, cognome: e.target.value})}
+                    />
                   </div>
                 </div>
 
                 <div>
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-3">Negozi Collegati</label>
-                   <div className="grid grid-cols-2 gap-2">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-3">Sedi Attive</label>
+                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {shops.map(shop => (
                       <div 
                         key={shop.id}
                         onClick={() => toggleShopInEdit(shop.id)}
-                        className={`h-12 px-4 rounded-2xl border text-[10px] font-black uppercase tracking-tight transition-all cursor-pointer flex items-center gap-3 ${
+                        className={`h-12 px-4 rounded-2xl border text-[10px] font-black uppercase tracking-tight transition-all cursor-pointer flex items-center justify-center text-center gap-3 ${
                           editFormData.shopIds.includes(shop.id) 
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100' 
-                            : 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
+                            ? 'bg-slate-900 border-slate-900 text-white shadow-lg' 
+                            : 'bg-white border-slate-100 text-slate-400'
                         }`}
                       >
                          {shop.name}
@@ -367,11 +371,11 @@ export default function EmployeeManager() {
                   </div>
                 </div>
 
-                <div className="bg-slate-50 px-5 py-5 rounded-[2rem] border border-slate-100 italic-text-none">
+                <div className="bg-indigo-50/50 px-5 py-5 rounded-[2rem] border border-indigo-100 italic-text-none">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-black text-slate-800 uppercase tracking-tight italic">Privacy Colleghi</p>
-                      <p className="text-[9px] text-slate-400 font-bold tracking-widest mt-0.5">VISIBILITÀ TURNI NEGOZIO</p>
+                      <p className="text-xs font-black text-indigo-900 uppercase tracking-tight italic">Privacy Collaboratore</p>
+                      <p className="text-[9px] text-indigo-400 font-bold tracking-widest mt-0.5">PUÒ VEDERE I TURNI DEI COLLEGHI</p>
                     </div>
                     <div 
                       onClick={() => setEditFormData({...editFormData, canSeeColleagues: !editFormData.canSeeColleagues})}
@@ -385,24 +389,24 @@ export default function EmployeeManager() {
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-4">
+                <div className="flex flex-col-reverse md:flex-row gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setEditingUser(null)}
                     className="flex-1 h-14 bg-slate-100 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
                   >
-                    Annulla
+                    Chiudi
                   </button>
                   <button
                     type="submit"
-                    className="flex-[2] h-14 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all"
+                    className="flex-[2] h-14 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all"
                   >
-                    <Save size={16} /> Salva Dati
+                    <Save size={16} /> Salva Modifiche
                   </button>
                 </div>
               </form>
             </motion.div>
-          </>
+          </div>
         )}
       </AnimatePresence>
     </div>
