@@ -56,6 +56,8 @@ export default function ShiftExchangeModal({ myShift, onClose, allShifts, names,
       const dup = await getDocs(
         query(
           collection(db, 'shiftExchanges'),
+          // Il filtro su requesterId serve alle regole di sicurezza: si leggono solo i propri scambi
+          where('requesterId', '==', user.id),
           where('requesterShiftId', '==', myShift.id),
           where('targetShiftId', '==', selected.id),
           where('status', '==', 'pending'),
