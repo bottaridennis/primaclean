@@ -1,183 +1,336 @@
-import React, { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
+import { collection, deleteDoc, doc, limit, orderBy, query, where } from 'firebase/firestore';
+import { addDays, parseISO } from 'date-fns';
+import {
+  Users,
+  Store,
+  CalendarCheck2,
+  UserPlus,
+  AlertTriangle,
+  ArrowLeftRight,
+  ArrowRight,
+  CalendarRange,
+  CheckCircle2,
+  Hourglass,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDocs } from 'firebase/firestore';
-import { User, Shop } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
-import { Check, X, Shield, Store as ShopIcon, User as UserIcon } from 'lucide-react';
+import { useApprovedUsers, useLiveQuery, usePendingUsers, useShops } from '../lib/hooks';
+import { capitalize, cn, fmt, fullName, isShopClosed, toISODate } from '../lib/utils';
+import { shiftMeta, sortShifts } from '../lib/shifts';
+import type { ExchangeLog, Shift, User } from '../types';
+import type { TabId } from './Layout';
+import { Avatar } from './ui/Avatar';
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import { EmptyState, Spinner } from './ui/Primitives';
+import { useToast } from './ui/Toast';
+import UserFormModal from './UserFormModal';
 
-export default function AdminDashboard() {
-  const [pendingUsers, setPendingUsers] = useState<User[]>([]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [selectedShopIds, setSelectedShopIds] = useState<string[]>([]);
-  const [canSeeColleagues, setCanSeeColleagues] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+interface Props {
+  user: User;
+  onNavigate: (tab: TabId) => void;
+}
 
-  useEffect(() => {
-    const q = query(collection(db, 'users'), where('isApproved', '==', false));
-    const unsubscribeUsers = onSnapshot(q, (snapshot) => {
-      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      setPendingUsers(users);
-      setIsLoading(false);
-    });
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 13) return 'Buongiorno';
+  if (h < 18) return 'Buon pomeriggio';
+  return 'Buonasera';
+}
 
-    const unsubscribeShops = onSnapshot(collection(db, 'shops'), (snapshot) => {
-      const shopsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shop));
-      setShops(shopsData);
-    });
+export default function AdminDashboard({ user, onNavigate }: Props) {
+  const toast = useToast();
+  const { data: shops, loading: shopsLoading } = useShops();
+  const { data: staff } = useApprovedUsers();
+  const { data: pending, loading: pendingLoading } = usePendingUsers();
 
-    return () => {
-      unsubscribeUsers();
-      unsubscribeShops();
-    };
-  }, []);
+  const today = toISODate(new Date());
+  const horizon = useMemo(() => Array.from({ length: 7 }, (_, i) => toISODate(addDays(new Date(), i))), []);
+  const { data: weekShifts } = useLiveQuery<Shift>(
+    () => query(collection(db, 'shifts'), where('date', '>=', horizon[0]), where('date', '<=', horizon[6])),
+    `dash-shifts-${horizon[0]}`,
+  );
+  const { data: logs } = useLiveQuery<ExchangeLog & { id: string }>(
+    () => query(collection(db, 'exchangeLogs'), orderBy('acceptedAt', 'desc'), limit(5)),
+    'dash-logs',
+  );
 
-  const handleApprove = async () => {
-    if (!selectedUser || selectedShopIds.length === 0) return;
+  const [approving, setApproving] = useState<User | null>(null);
+  const [rejecting, setRejecting] = useState<User | null>(null);
 
+  const staffById = useMemo(() => Object.fromEntries(staff.map(s => [s.id, s])), [staff]);
+  const shopById = useMemo(() => Object.fromEntries(shops.map(s => [s.id, s])), [shops]);
+  const todayShifts = weekShifts.filter(s => s.date === today);
+  const activeStaff = staff.filter(s => !s.isBlocked);
+
+  // Giorni di apertura senza nessun turno nei prossimi 7 giorni
+  const gaps = useMemo(() => {
+    const out: { shopId: string; date: string }[] = [];
+    for (const shop of shops) {
+      for (const d of horizon) {
+        if (isShopClosed(shop, d) || parseISO(d).getDay() === 0) continue; // domenica: chiusura standard
+        if (!weekShifts.some(s => s.shopId === shop.id && s.date === d)) out.push({ shopId: shop.id, date: d });
+      }
+    }
+    return out;
+  }, [shops, horizon, weekShifts]);
+
+  const reject = async () => {
+    if (!rejecting) return;
     try {
-      const userRef = doc(db, 'users', selectedUser.id);
-      await updateDoc(userRef, {
-        isApproved: true,
-        shopIds: selectedShopIds,
-        canSeeColleagues: canSeeColleagues
-      });
-      setSelectedUser(null);
-      setSelectedShopIds([]);
-      setCanSeeColleagues(false);
-    } catch (error) {
-      console.error("Error approving user:", error);
+      await deleteDoc(doc(db, 'users', rejecting.id));
+      toast.success('Richiesta rifiutata.');
+    } catch (err) {
+      toast.error(err);
     }
   };
 
-  const toggleShop = (shopId: string) => {
-    setSelectedShopIds(prev => 
-      prev.includes(shopId) ? prev.filter(id => id !== shopId) : [...prev, shopId]
-    );
-  };
-
-  if (isLoading) return <div className="flex justify-center p-8">Caricamento utenti in attesa...</div>;
+  if (shopsLoading && pendingLoading) return <Spinner label="Caricamento panoramica…" />;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
-          <h2 className="text-xl font-bold text-slate-800">Approvazioni Pendenti</h2>
+      {/* Intestazione */}
+      <section className="relative overflow-hidden rounded-[28px] bg-brand-800 bubbles text-white p-6 md:p-8">
+        <div className="absolute -right-16 -top-16 size-64 rounded-full bg-brand-500/30 blur-2xl" />
+        <div className="relative flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <p className="text-sm font-medium text-brand-100/80">{capitalize(fmt(new Date(), 'EEEE d MMMM yyyy'))}</p>
+            <h1 className="mt-1 text-2xl md:text-3xl font-extrabold tracking-tight">
+              {greeting()}, {user.nome}
+            </h1>
+            <p className="mt-2 text-brand-100/90 max-w-lg">
+              {todayShifts.length > 0
+                ? `Oggi sono previsti ${todayShifts.length} turni in ${new Set(todayShifts.map(s => s.shopId)).size} negozi.`
+                : 'Oggi non ci sono turni programmati.'}
+              {pending.length > 0 && ` ${pending.length === 1 ? 'Una nuova richiesta' : `${pending.length} nuove richieste`} di accesso da gestire.`}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn bg-white text-brand-800 hover:bg-brand-50" onClick={() => onNavigate('planner')}>
+              <CalendarRange size={18} /> Pianifica turni
+            </button>
+            <button className="btn bg-white/10 text-white hover:bg-white/20" onClick={() => onNavigate('shops')}>
+              <Store size={18} /> Negozi
+            </button>
+          </div>
         </div>
-        <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-tight">
-          {pendingUsers.length} Nuovi
-        </span>
+      </section>
+
+      {/* KPI */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <Kpi icon={Users} label="Personale attivo" value={activeStaff.length} onClick={() => onNavigate('staff')} />
+        <Kpi icon={Store} label="Negozi" value={shops.length} onClick={() => onNavigate('shops')} />
+        <Kpi icon={CalendarCheck2} label="Turni oggi" value={todayShifts.length} onClick={() => onNavigate('schedule')} />
+        <Kpi
+          icon={UserPlus}
+          label="Richieste di accesso"
+          value={pending.length}
+          highlight={pending.length > 0}
+          onClick={() => document.getElementById('approvals')?.scrollIntoView({ behavior: 'smooth' })}
+        />
+      </section>
+
+      <div className="grid lg:grid-cols-5 gap-6">
+        {/* Colonna sinistra */}
+        <div className="lg:col-span-3 space-y-6">
+          {/* Oggi nei negozi */}
+          <section className="card">
+            <header className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div>
+                <h2 className="font-bold text-slate-900">Oggi nei negozi</h2>
+                <p className="text-sm text-slate-500">Chi è in servizio e dove</p>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('schedule')}>
+                Agenda <ArrowRight size={16} />
+              </button>
+            </header>
+            {shops.length === 0 ? (
+              <EmptyState
+                icon={Store}
+                title="Nessun negozio configurato"
+                description="Crea il primo punto vendita per iniziare a pianificare i turni."
+                action={<button className="btn btn-primary" onClick={() => onNavigate('shops')}>Crea negozio</button>}
+              />
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {shops.map(shop => {
+                  const list = sortShifts(todayShifts.filter(s => s.shopId === shop.id));
+                  const closed = isShopClosed(shop, today);
+                  return (
+                    <li key={shop.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex items-center gap-3 sm:w-60 shrink-0">
+                        <span className="size-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center">
+                          <Store size={18} />
+                        </span>
+                        <p className="font-semibold text-slate-800 line-clamp-2">{shop.name}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 flex-1">
+                        {closed ? (
+                          <span className="chip bg-rose-50 text-rose-700">Chiuso per festività</span>
+                        ) : list.length === 0 ? (
+                          <span className="chip bg-amber-50 text-amber-700">
+                            <AlertTriangle size={13} /> Nessun turno
+                          </span>
+                        ) : (
+                          list.map(s => {
+                            const meta = shiftMeta(s.shiftType);
+                            return (
+                              <span key={s.id} className={cn('chip border', meta.soft)}>
+                                <meta.icon size={13} />
+                                {staffById[s.userId] ? staffById[s.userId].nome : 'Utente rimosso'}
+                                <span className="font-medium opacity-70">· {meta.label}</span>
+                              </span>
+                            );
+                          })
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          {/* Scoperture */}
+          {shops.length > 0 && (
+            <section className="card p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="font-bold text-slate-900">Prossimi 7 giorni</h2>
+                  <p className="text-sm text-slate-500">Giorni di apertura senza personale assegnato</p>
+                </div>
+                {gaps.length > 0 && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => onNavigate('planner')}>
+                    Risolvi
+                  </button>
+                )}
+              </div>
+              {gaps.length === 0 ? (
+                <p className="flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                  <CheckCircle2 size={18} /> Tutti i negozi sono coperti per la prossima settimana.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {gaps.slice(0, 12).map(g => (
+                    <span key={g.shopId + g.date} className="chip bg-amber-50 text-amber-800 border border-amber-200">
+                      <AlertTriangle size={13} />
+                      {shopById[g.shopId]?.name} · {capitalize(fmt(g.date, 'EEE d MMM'))}
+                    </span>
+                  ))}
+                  {gaps.length > 12 && <span className="chip bg-slate-100 text-slate-600">+{gaps.length - 12} altri</span>}
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+
+        {/* Colonna destra */}
+        <div className="lg:col-span-2 space-y-6">
+          <section id="approvals" className="card scroll-mt-24">
+            <header className="flex items-center gap-2 px-5 pt-5 pb-3">
+              <h2 className="font-bold text-slate-900 flex-1">Richieste di accesso</h2>
+              {pending.length > 0 && <span className="chip bg-amber-100 text-amber-800">{pending.length}</span>}
+            </header>
+            {pending.length === 0 ? (
+              <EmptyState icon={Hourglass} title="Nessuna richiesta" description="Le nuove registrazioni compariranno qui." className="py-8" />
+            ) : (
+              <ul className="px-3 pb-3 space-y-1">
+                {pending.map(p => (
+                  <li key={p.id} className="flex items-center gap-3 rounded-2xl p-2 hover:bg-slate-50">
+                    <Avatar user={p} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-800 truncate">{fullName(p)}</p>
+                      <p className="text-[13px] text-slate-500 truncate">{p.email}</p>
+                    </div>
+                    <button className="btn-icon text-slate-400 hover:text-rose-600 hover:bg-rose-50" aria-label={`Rifiuta ${fullName(p)}`} onClick={() => setRejecting(p)}>
+                      <X size={18} />
+                    </button>
+                    <button className="btn btn-primary btn-sm" onClick={() => setApproving(p)}>
+                      Approva
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="card">
+            <header className="flex items-center justify-between px-5 pt-5 pb-3">
+              <h2 className="font-bold text-slate-900">Ultimi scambi</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('exchanges')}>
+                Tutti <ArrowRight size={16} />
+              </button>
+            </header>
+            {logs.length === 0 ? (
+              <EmptyState icon={ArrowLeftRight} title="Nessuno scambio" description="Gli scambi accettati tra colleghi compariranno qui." className="py-8" />
+            ) : (
+              <ul className="px-5 pb-4 divide-y divide-slate-100">
+                {logs.map(l => (
+                  <li key={l.id} className="py-3 text-sm">
+                    <p className="font-semibold text-slate-800">
+                      {l.requesterName.split(' ')[0]} <ArrowLeftRight size={13} className="inline text-brand-500 mx-1" /> {l.targetUserName.split(' ')[0]}
+                    </p>
+                    <p className="text-slate-500 text-[13px]">
+                      {shopById[l.shopId]?.name ?? 'Negozio'} · {fmt(l.acceptedAt, "d MMM 'alle' HH:mm")}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
 
-      {pendingUsers.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center text-slate-400 font-medium shadow-sm">
-          Nessun utente in attesa di approvazione.
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          {pendingUsers.map((user) => (
-            <motion.div
-              key={user.id}
-              layout
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-indigo-200 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold border border-slate-200">
-                  {user.nome[0]}
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 leading-tight">{user.nome} {user.cognome}</h3>
-                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-tight">{user.email}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedUser(user)}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-sm active:scale-95"
-                id={`approve-btn-${user.id}`}
-              >
-                Approva
-              </button>
-            </motion.div>
-          ))}
-        </div>
-      )}
-
-      {/* Approvazione Modal */}
-      <AnimatePresence>
-        {selectedUser && (
-          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl border border-slate-200"
-            >
-              <div className="mb-6">
-                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">Configurazione Utente</p>
-                <h3 className="text-2xl font-bold text-slate-900">Approva {selectedUser.nome}</h3>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Assegna Negozi (Uno o più)</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {shops.map(shop => (
-                      <div 
-                        key={shop.id}
-                        onClick={() => toggleShop(shop.id)}
-                        className={`p-3 rounded-xl border text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-2 ${
-                          selectedShopIds.includes(shop.id) 
-                            ? 'bg-indigo-50 border-indigo-200 text-indigo-600 shadow-sm' 
-                            : 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
-                        }`}
-                      >
-                         <div className={`w-3 h-3 rounded-md border flex items-center justify-center transition-colors ${
-                           selectedShopIds.includes(shop.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300'
-                         }`}>
-                           {selectedShopIds.includes(shop.id) && <Check size={8} strokeWidth={4} />}
-                         </div>
-                         {shop.name}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 hover:border-indigo-200 transition-colors cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    id="canSeeColleagues"
-                    checked={canSeeColleagues}
-                    onChange={(e) => setCanSeeColleagues(e.target.checked)}
-                    className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
-                  />
-                  <label htmlFor="canSeeColleagues" className="text-xs text-slate-600 font-bold uppercase tracking-tight cursor-pointer">
-                    Visibilità turni colleghi
-                  </label>
-                </div>
-              </div>
-
-              <div className="mt-8 flex gap-3">
-                <button
-                  onClick={() => setSelectedUser(null)}
-                  className="flex-1 px-4 py-3 border border-slate-200 rounded-2xl text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors"
-                >
-                  Annulla
-                </button>
-                <button
-                  onClick={handleApprove}
-                  disabled={selectedShopIds.length === 0}
-                  className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:grayscale transition-all shadow-md"
-                >
-                  Confirm Approvazione
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <UserFormModal user={approving} shops={shops} mode="approve" onClose={() => setApproving(null)} />
+      <ConfirmDialog
+        open={!!rejecting}
+        onClose={() => setRejecting(null)}
+        onConfirm={reject}
+        title="Rifiutare la richiesta?"
+        message={
+          <>
+            Il profilo di <strong className="text-slate-700">{fullName(rejecting)}</strong> verrà eliminato. La persona potrà
+            comunque registrarsi di nuovo in futuro.
+          </>
+        }
+        confirmLabel="Rifiuta richiesta"
+      />
     </div>
+  );
+}
+
+function Kpi({
+  icon: Icon,
+  label,
+  value,
+  highlight,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  highlight?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'card p-4 md:p-5 text-left transition-all hover:shadow-lift hover:-translate-y-0.5',
+        highlight && 'border-amber-300 bg-amber-50/60',
+      )}
+    >
+      <span
+        className={cn(
+          'size-10 rounded-2xl flex items-center justify-center',
+          highlight ? 'bg-amber-100 text-amber-700' : 'bg-brand-50 text-brand-600',
+        )}
+      >
+        <Icon size={20} />
+      </span>
+      <p className="mt-4 text-3xl font-extrabold tracking-tight text-brand-950">{value}</p>
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+    </button>
   );
 }

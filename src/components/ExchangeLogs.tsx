@@ -1,112 +1,105 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { ExchangeLog } from '../types';
+import { useMemo, useState } from 'react';
+import { collection, limit, orderBy, query } from 'firebase/firestore';
+import { ArrowLeftRight, Search, Store } from 'lucide-react';
 import { motion } from 'motion/react';
-import { format, parseISO } from 'date-fns';
-import { it } from 'date-fns/locale';
-import { ArrowRightLeft, Clock } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { useLiveQuery, useShops } from '../lib/hooks';
+import { shiftMeta } from '../lib/shifts';
+import { capitalize, cn, fmt } from '../lib/utils';
+import type { ExchangeLog } from '../types';
+import { EmptyState, PageHeader, Spinner } from './ui/Primitives';
+
+const PAGE = 50;
 
 export default function ExchangeLogs() {
-  const [logs, setLogs] = useState<ExchangeLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [max, setMax] = useState(PAGE);
+  const [search, setSearch] = useState('');
+  const [shopId, setShopId] = useState('');
+  const { data: shops } = useShops();
+  const { data: logs, loading } = useLiveQuery<ExchangeLog & { id: string }>(
+    () => query(collection(db, 'exchangeLogs'), orderBy('acceptedAt', 'desc'), limit(max)),
+    `logs-${max}`,
+  );
+  const shopName = (id: string) => shops.find(s => s.id === id)?.name ?? 'Negozio eliminato';
 
-  useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        const q = query(
-          collection(db, 'exchangeLogs'),
-          orderBy('acceptedAt', 'desc'),
-          limit(50)
-        );
-        const snapshot = await getDocs(q);
-        const fetchedLogs = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as ExchangeLog));
-        
-        setLogs(fetchedLogs);
-      } catch (err) {
-        console.error("Error fetching logs", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLogs();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center p-12">
-        <Clock className="animate-spin text-indigo-400" size={32} />
-      </div>
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return logs.filter(
+      l => (!shopId || l.shopId === shopId) && (!q || `${l.requesterName} ${l.targetUserName}`.toLowerCase().includes(q)),
     );
-  }
-
-  const shiftTypeLabels = {
-    'morning': 'Mattina',
-    'afternoon': 'Pomeriggio',
-    'full-day': 'Tutto il Giorno'
-  };
+  }, [logs, search, shopId]);
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-          <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">Storico Scambi</h3>
-          <p className="text-sm text-slate-500">Ultimi 50 scambi di turni approvati.</p>
+    <div>
+      <PageHeader title="Storico scambi" description="Tutti gli scambi di turno accettati tra colleghi, dal più recente." />
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input className="input pl-11" placeholder="Cerca per nome…" value={search} onChange={e => setSearch(e.target.value)} aria-label="Cerca negli scambi" />
         </div>
-        
-        {logs.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            Nessuno scambio registrato finora.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {logs.map((log) => (
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                key={log.id} 
-                className="p-6 hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex gap-6 items-center flex-col md:flex-row">
-                  
-                  {/* Tempo Accettazione */}
-                  <div className="text-[10px] text-slate-400 font-bold uppercase w-full md:w-32 flex-shrink-0">
-                    <p>{format(parseISO(log.acceptedAt), 'dd MMM yyyy', { locale: it })}</p>
-                    <p>{format(parseISO(log.acceptedAt), 'HH:mm', { locale: it })}</p>
-                  </div>
-
-                  <div className="flex-1 w-full flex flex-col md:flex-row items-center gap-4 bg-slate-100/50 p-4 rounded-2xl">
-                    {/* Requester */}
-                    <div className="flex-1 text-center md:text-right">
-                      <p className="font-bold text-slate-900">{log.requesterName}</p>
-                      <p className="text-xs text-slate-500">
-                        {format(parseISO(log.requesterShiftDate), 'dd MMM', { locale: it })} &middot; {shiftTypeLabels[log.requesterShiftType as 'morning' | 'afternoon' | 'full-day']}
-                      </p>
-                    </div>
-
-                    <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center flex-shrink-0 border border-slate-200">
-                      <ArrowRightLeft size={14} className="text-indigo-400" />
-                    </div>
-
-                    {/* Target */}
-                    <div className="flex-1 text-center md:text-left">
-                      <p className="font-bold text-slate-900">{log.targetUserName}</p>
-                      <p className="text-xs text-slate-500">
-                        {format(parseISO(log.targetShiftDate), 'dd MMM', { locale: it })} &middot; {shiftTypeLabels[log.targetShiftType as 'morning' | 'afternoon' | 'full-day']}
-                      </p>
-                    </div>
-                  </div>
-
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
+        <select className="input sm:w-60" value={shopId} onChange={e => setShopId(e.target.value)} aria-label="Filtra per negozio">
+          <option value="">Tutti i negozi</option>
+          {shops.map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
       </div>
+
+      {loading && logs.length === 0 ? (
+        <Spinner label="Caricamento storico…" />
+      ) : filtered.length === 0 ? (
+        <div className="card">
+          <EmptyState
+            icon={ArrowLeftRight}
+            title={logs.length ? 'Nessun risultato' : 'Nessuno scambio registrato'}
+            description={logs.length ? 'Prova a modificare i filtri.' : 'Quando un dipendente accetta uno scambio, lo troverai qui.'}
+          />
+        </div>
+      ) : (
+        <div className="card divide-y divide-slate-100">
+          {filtered.map(log => (
+            <motion.div key={log.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+              <div className="md:w-40 shrink-0">
+                <p className="text-sm font-semibold text-slate-700">{capitalize(fmt(log.acceptedAt, 'd MMM yyyy'))}</p>
+                <p className="text-[13px] text-slate-400 flex items-center gap-1">
+                  <Store size={12} /> {shopName(log.shopId)} · {fmt(log.acceptedAt, 'HH:mm')}
+                </p>
+              </div>
+              <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <Party name={log.requesterName} date={log.requesterShiftDate} type={log.requesterShiftType} note="ha ceduto" />
+                <span className="size-9 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center">
+                  <ArrowLeftRight size={16} />
+                </span>
+                <Party name={log.targetUserName} date={log.targetShiftDate} type={log.targetShiftType} note="ha ceduto" align="right" />
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {logs.length >= max && (
+        <div className="flex justify-center mt-5">
+          <button className="btn btn-secondary" onClick={() => setMax(m => m + PAGE)}>
+            Carica altri scambi
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Party({ name, date, type, note, align }: { name: string; date: string; type: string; note: string; align?: 'right' }) {
+  const meta = shiftMeta(type);
+  return (
+    <div className={cn('min-w-0', align === 'right' && 'text-right')}>
+      <p className="font-bold text-slate-900 truncate">{name}</p>
+      <p className="text-[13px] text-slate-500">
+        {note}{' '}
+        <span className={cn('inline-flex items-center gap-1 rounded-md border px-1.5 py-px font-semibold', meta.soft)}>
+          {capitalize(fmt(date, 'EEE d MMM'))} · {meta.short}
+        </span>
+      </p>
     </div>
   );
 }

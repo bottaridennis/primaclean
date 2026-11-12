@@ -1,318 +1,428 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { addDoc, collection, deleteDoc, doc, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { addDays, addWeeks, isSameDay, parseISO } from 'date-fns';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Copy, Loader2, Plus, Store, Trash2, Users } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, query, where, doc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { User, Shop, Shift } from '../types';
-import { Plus, Trash2, Calendar, MapPin, User as UserIcon, Clock, Edit2, Check, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { format } from 'date-fns';
+import { useApprovedUsers, useLiveQuery, useShops } from '../lib/hooks';
+import { SHIFT_TYPE_LIST, shiftConflict, shiftMeta, sortShifts } from '../lib/shifts';
+import { capitalize, cn, fmt, fullName, isShopClosed, toISODate, weekDays, weekLabel } from '../lib/utils';
+import type { Shift, ShiftType, User } from '../types';
+import { Avatar } from './ui/Avatar';
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import { Modal } from './ui/Modal';
+import { EmptyState, PageHeader, PillTabs, Spinner } from './ui/Primitives';
+import { useToast } from './ui/Toast';
+
+interface CellRef {
+  user: User | { id: string; nome: string; cognome: string };
+  date: string;
+}
 
 export default function ShiftCreator() {
-  const [employees, setEmployees] = useState<User[]>([]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [selectedUser, setSelectedUser] = useState('');
-  const [selectedShop, setSelectedShop] = useState('');
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [shiftType, setShiftType] = useState<'morning' | 'afternoon' | 'full-day'>('morning');
-  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
-  const [shiftToDelete, setShiftToDelete] = useState<string | null>(null);
+  const toast = useToast();
+  const { data: shops, loading: shopsLoading } = useShops();
+  const { data: staff } = useApprovedUsers();
+  const [shopId, setShopId] = useState('');
+  const [anchor, setAnchor] = useState(() => new Date());
+  const [cell, setCell] = useState<CellRef | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
 
   useEffect(() => {
-    // Approved users (Employees AND Admins)
-    const unsubscribeUsers = onSnapshot(query(collection(db, 'users'), where('isApproved', '==', true)), (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
-    });
+    if (!shopId && shops.length) setShopId(shops[0].id);
+    if (shopId && shops.length && !shops.some(s => s.id === shopId)) setShopId(shops[0].id);
+  }, [shops, shopId]);
 
-    const unsubscribeShops = onSnapshot(collection(db, 'shops'), (snapshot) => {
-      const shopsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shop));
-      setShops(shopsData);
-      if (shopsData.length > 0 && !selectedShop) setSelectedShop(shopsData[0].id);
-    });
+  const days = useMemo(() => weekDays(anchor), [anchor]);
+  const isoDays = useMemo(() => days.map(toISODate), [days]);
+  const shop = shops.find(s => s.id === shopId);
 
-    return () => {
-      unsubscribeUsers();
-      unsubscribeShops();
-    };
-  }, []);
+  // Tutti i turni della settimana (tutte le sedi) per poter rilevare i conflitti tra negozi
+  const { data: weekShifts, loading: shiftsLoading } = useLiveQuery<Shift>(
+    () => query(collection(db, 'shifts'), where('date', '>=', isoDays[0]), where('date', '<=', isoDays[6])),
+    `planner-${isoDays[0]}`,
+  );
 
-  useEffect(() => {
-    if (!selectedShop || !date) return;
-    
-    const q = query(
-      collection(db, 'shifts'),
-      where('shopId', '==', selectedShop),
-      where('date', '==', date)
+  const shopShifts = useMemo(() => weekShifts.filter(s => s.shopId === shopId), [weekShifts, shopId]);
+  const staffById = useMemo(() => Object.fromEntries(staff.map(u => [u.id, u])), [staff]);
+
+  // Righe: personale assegnato al negozio + chi ha turni qui pur non essendo più assegnato
+  const rows = useMemo(() => {
+    const assigned = staff.filter(u => (u.shopIds ?? []).includes(shopId) && !u.isBlocked);
+    const extraIds = Array.from(new Set(shopShifts.map(s => s.userId))).filter(id => !assigned.some(u => u.id === id));
+    const extra = extraIds.map(id => staffById[id] ?? { id, nome: 'Utente', cognome: 'rimosso' });
+    return [...assigned, ...extra] as CellRef['user'][];
+  }, [staff, shopId, shopShifts, staffById]);
+
+  const assignedIds = new Set(staff.filter(u => (u.shopIds ?? []).includes(shopId)).map(u => u.id));
+  const shiftsOf = (userId: string, date: string) => weekShifts.filter(s => s.userId === userId && s.date === date);
+
+  const addShift = async (userId: string, date: string, type: ShiftType) => {
+    const conflict = shiftConflict(shiftsOf(userId, date), type);
+    if (conflict) return toast.error(conflict);
+    try {
+      await addDoc(collection(db, 'shifts'), { userId, shopId, date, shiftType: type });
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  const removeShift = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'shifts', id));
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  const copyPreviousWeek = async () => {
+    const prev = weekDays(addWeeks(anchor, -1)).map(toISODate);
+    const snap = await getDocs(query(collection(db, 'shifts'), where('date', '>=', prev[0]), where('date', '<=', prev[6])));
+    const source = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Shift).filter(s => s.shopId === shopId);
+    if (source.length === 0) {
+      toast.info('La settimana precedente non ha turni da copiare.');
+      return;
+    }
+    const planned: Shift[] = [...weekShifts];
+    const batch = writeBatch(db);
+    let added = 0;
+    let skipped = 0;
+    for (const s of source) {
+      const date = toISODate(addDays(parseISO(s.date), 7));
+      const user = staffById[s.userId];
+      const existing = planned.filter(p => p.userId === s.userId && p.date === date);
+      if (!user || user.isBlocked || isShopClosed(shop, date) || shiftConflict(existing, s.shiftType)) {
+        skipped++;
+        continue;
+      }
+      const ref = doc(collection(db, 'shifts'));
+      const copy = { userId: s.userId, shopId, date, shiftType: s.shiftType };
+      batch.set(ref, copy);
+      planned.push({ id: ref.id, ...copy });
+      added++;
+    }
+    if (added === 0) {
+      toast.info('Nessun turno da copiare: sono già tutti presenti o in conflitto.');
+      return;
+    }
+    try {
+      await batch.commit();
+      toast.success(`Copiati ${added} turni${skipped ? ` (${skipped} saltati per conflitti o chiusure)` : ''}.`);
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  if (shopsLoading) return <Spinner label="Caricamento planner…" />;
+
+  if (shops.length === 0) {
+    return (
+      <div>
+        <PageHeader title="Planner turni" />
+        <div className="card">
+          <EmptyState icon={Store} title="Nessun negozio" description="Crea almeno un negozio per iniziare a pianificare i turni." />
+        </div>
+      </div>
     );
-    
-    const unsubscribeShifts = onSnapshot(q, (snapshot) => {
-      setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
-    });
-    
-    return () => unsubscribeShifts();
-  }, [selectedShop, date]);
+  }
 
-  const handleAddShift = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUser || !selectedShop || !date) return;
+  const today = new Date();
+  const cellShifts = cell ? shiftsOf(cell.user.id, cell.date) : [];
 
+  return (
+    <div>
+      <PageHeader
+        title="Planner turni"
+        description="Tocca una casella per assegnare o rimuovere un turno. Le modifiche sono visibili subito al personale."
+        actions={
+          <button className="btn btn-secondary" onClick={() => setCopyOpen(true)}>
+            <Copy size={17} /> Copia settimana precedente
+          </button>
+        }
+      />
+
+      <PillTabs
+        className="mb-4"
+        ariaLabel="Negozio"
+        value={shopId}
+        onChange={setShopId}
+        options={shops.map(s => ({ value: s.id, label: s.name }))}
+      />
+
+      <div className="card overflow-hidden">
+        {/* Navigazione settimana */}
+        <div className="flex items-center gap-2 p-3 sm:p-4 border-b border-slate-100">
+          <button className="btn-icon" onClick={() => setAnchor(a => addWeeks(a, -1))} aria-label="Settimana precedente">
+            <ChevronLeft size={20} />
+          </button>
+          <div className="flex-1 text-center">
+            <p className="font-bold text-slate-900">{weekLabel(days)}</p>
+            <p className="text-[13px] text-slate-500">
+              {shopShifts.length} turni · {rows.length} persone
+            </p>
+          </div>
+          <button className="btn-icon" onClick={() => setAnchor(a => addWeeks(a, 1))} aria-label="Settimana successiva">
+            <ChevronRight size={20} />
+          </button>
+          <button className="btn btn-secondary btn-sm hidden sm:inline-flex" onClick={() => setAnchor(new Date())} disabled={days.some(d => isSameDay(d, today))}>
+            Oggi
+          </button>
+        </div>
+
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title="Nessun dipendente assegnato"
+            description="Assegna del personale a questo negozio dalla sezione «Personale» per poter creare i turni."
+          />
+        ) : (
+          <div className="overflow-x-auto relative">
+            {shiftsLoading && <div className="absolute inset-x-0 top-0 h-0.5 bg-brand-400 animate-pulse" />}
+            <table className="w-full border-collapse text-sm min-w-[860px]">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-10 bg-white w-44 min-w-44 text-left px-4 py-3 text-xs font-semibold text-slate-400 border-b border-slate-100">
+                    Personale
+                  </th>
+                  {days.map((d, i) => {
+                    const closed = isShopClosed(shop, isoDays[i]);
+                    const isToday = isSameDay(d, today);
+                    return (
+                      <th
+                        key={isoDays[i]}
+                        className={cn('px-2 py-3 border-b border-l border-slate-100 font-normal', closed && 'bg-rose-50/60', isToday && 'bg-brand-50/70')}
+                      >
+                        <p className={cn('text-xs font-semibold uppercase tracking-wide', isToday ? 'text-brand-600' : 'text-slate-400')}>{fmt(d, 'EEE')}</p>
+                        <p className={cn('text-lg font-extrabold', isToday ? 'text-brand-700' : 'text-slate-800')}>{fmt(d, 'd')}</p>
+                        {closed && <p className="text-[11px] font-semibold text-rose-600">Chiuso</p>}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(u => (
+                  <tr key={u.id} className="group">
+                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-2 border-b border-slate-100">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar user={u} size="sm" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-800 truncate">{fullName(u)}</p>
+                          {!assignedIds.has(u.id) && <p className="text-[11px] text-amber-600 font-medium">Non più assegnato</p>}
+                        </div>
+                      </div>
+                    </td>
+                    {isoDays.map(date => {
+                      const closed = isShopClosed(shop, date);
+                      const mine = sortShifts(shiftsOf(u.id, date));
+                      const here = mine.filter(s => s.shopId === shopId);
+                      const elsewhere = mine.filter(s => s.shopId !== shopId);
+                      return (
+                        <td key={date} className={cn('border-b border-l border-slate-100 p-1.5 align-top', closed && 'striped-closed')}>
+                          <button
+                            onClick={() => setCell({ user: u, date })}
+                            disabled={closed && here.length === 0}
+                            className={cn(
+                              'w-full min-h-14 rounded-xl p-1 flex flex-col gap-1 items-stretch transition-colors text-left',
+                              'hover:bg-brand-50 focus-visible:bg-brand-50 disabled:hover:bg-transparent disabled:cursor-not-allowed',
+                            )}
+                            aria-label={`${fullName(u)}, ${fmt(date, 'EEEE d MMMM')}: ${here.map(s => shiftMeta(s.shiftType).label).join(', ') || 'nessun turno'}`}
+                          >
+                            {here.map(s => {
+                              const meta = shiftMeta(s.shiftType);
+                              return (
+                                <span key={s.id} className={cn('rounded-lg px-2 py-1 text-xs font-semibold flex items-center gap-1', meta.solid)}>
+                                  <meta.icon size={12} /> {meta.label}
+                                </span>
+                              );
+                            })}
+                            {elsewhere.map(s => (
+                              <span key={s.id} className="rounded-lg px-2 py-1 text-[11px] font-medium bg-slate-100 text-slate-500 truncate" title="Turno in un'altra sede">
+                                {shiftMeta(s.shiftType).short} · {shops.find(x => x.id === s.shopId)?.name ?? 'Altra sede'}
+                              </span>
+                            ))}
+                            {here.length === 0 && !closed && (
+                              <span className="flex-1 flex items-center justify-center text-slate-300 group-hover:text-slate-400">
+                                <Plus size={16} />
+                              </span>
+                            )}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">Copertura</td>
+                  {isoDays.map(date => {
+                    const list = shopShifts.filter(s => s.date === date);
+                    const closed = isShopClosed(shop, date);
+                    const morning = list.filter(s => s.shiftType !== 'afternoon').length;
+                    const afternoon = list.filter(s => s.shiftType !== 'morning').length;
+                    return (
+                      <td key={date} className="bg-slate-50 border-l border-slate-100 px-2 py-3 text-center">
+                        {closed ? (
+                          <span className="text-xs text-slate-400">—</span>
+                        ) : list.length === 0 ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
+                            <AlertTriangle size={13} /> Scoperto
+                          </span>
+                        ) : (
+                          <span className="inline-flex gap-1.5 text-xs font-semibold">
+                            <span className={cn('rounded-md px-1.5 py-0.5', morning ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-700')} title="Persone al mattino">
+                              M {morning}
+                            </span>
+                            <span className={cn('rounded-md px-1.5 py-0.5', afternoon ? 'bg-violet-100 text-violet-800' : 'bg-rose-100 text-rose-700')} title="Persone al pomeriggio">
+                              P {afternoon}
+                            </span>
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Legenda */}
+      <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4 text-[13px] text-slate-500">
+        {SHIFT_TYPE_LIST.map(m => (
+          <span key={m.type} className="inline-flex items-center gap-1.5">
+            <span className={cn('size-2.5 rounded-full', m.dot)} /> {m.label}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-full bg-slate-300" /> Turno in altra sede
+        </span>
+      </div>
+
+      {/* Editor casella */}
+      <Modal
+        open={!!cell}
+        onClose={() => setCell(null)}
+        size="sm"
+        title={cell ? fullName(cell.user) : ''}
+        description={cell ? `${capitalize(fmt(cell.date, 'EEEE d MMMM yyyy'))} · ${shop?.name}` : ''}
+      >
+        {cell && (
+          <CellEditor
+            shifts={cellShifts}
+            shopId={shopId}
+            closed={isShopClosed(shop, cell.date)}
+            otherShopName={id => shops.find(s => s.id === id)?.name ?? 'Altra sede'}
+            onAdd={t => addShift(cell.user.id, cell.date, t)}
+            onRemove={removeShift}
+          />
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        open={copyOpen}
+        onClose={() => setCopyOpen(false)}
+        onConfirm={copyPreviousWeek}
+        tone="primary"
+        title="Copiare la settimana precedente?"
+        message={
+          <>
+            I turni di <strong className="text-slate-700">{shop?.name}</strong> della settimana precedente verranno copiati su{' '}
+            {weekLabel(days)}. I turni già presenti non verranno toccati; quelli in conflitto o nei giorni di chiusura saranno saltati.
+          </>
+        }
+        confirmLabel="Copia turni"
+      />
+    </div>
+  );
+}
+
+function CellEditor({
+  shifts,
+  shopId,
+  closed,
+  otherShopName,
+  onAdd,
+  onRemove,
+}: {
+  shifts: Shift[];
+  shopId: string;
+  closed: boolean;
+  otherShopName: (id: string) => string;
+  onAdd: (t: ShiftType) => Promise<unknown>;
+  onRemove: (id: string) => Promise<unknown>;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const here = shifts.filter(s => s.shopId === shopId);
+  const elsewhere = shifts.filter(s => s.shopId !== shopId);
+
+  const run = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
     try {
-      await addDoc(collection(db, 'shifts'), {
-        userId: selectedUser,
-        shopId: selectedShop,
-        date,
-        shiftType
-      });
-      setSelectedUser('');
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleDeleteShift = async (id: string) => {
-    setShiftToDelete(id);
-  };
-
-  const confirmDeleteShift = async () => {
-    if (!shiftToDelete) return;
-    try {
-      await deleteDoc(doc(db, 'shifts', shiftToDelete));
-      setShiftToDelete(null);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleUpdateShift = async (id: string, newType: 'morning' | 'afternoon' | 'full-day') => {
-    try {
-      await updateDoc(doc(db, 'shifts', id), {
-        shiftType: newType
-      });
-      setEditingShiftId(null);
-    } catch (err) {
-      console.error(err);
+      await fn();
+    } finally {
+      setBusy(null);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-10">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-        <h2 className="text-xl font-bold text-slate-800">Pianificazione Turni</h2>
-      </div>
-
-      <form onSubmit={handleAddShift} className="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Data Turno</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Seleziona Negozio</label>
-              <div className="relative">
-                <select
-                  value={selectedShop}
-                  onChange={(e) => setSelectedShop(e.target.value)}
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none transition-all"
-                >
-                  <option value="">Seleziona...</option>
-                  {shops.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                  <MapPin size={16} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-             <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Seleziona Dipendente</label>
-              <div className="relative">
-                  <select
-                    value={selectedUser}
-                    onChange={(e) => setSelectedUser(e.target.value)}
-                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none transition-all"
-                  >
-                    <option value="">Seleziona...</option>
-                    {employees.filter(e => !selectedShop || (e.shopIds || []).includes(selectedShop)).map(e => (
-                      <option key={e.id} value={e.id}>{e.nome} {e.cognome}</option>
-                    ))}
-                  </select>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                  <UserIcon size={16} />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Fascia Oraria</label>
-              <div className="flex bg-slate-100 p-1 rounded-2xl">
-                <button
-                  type="button"
-                  onClick={() => setShiftType('morning')}
-                  className={`flex-1 py-3 text-[10px] font-bold uppercase rounded-xl transition-all ${
-                    shiftType === 'morning' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                  }`}
-                >
-                  Mattina
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShiftType('afternoon')}
-                  className={`flex-1 py-3 text-[10px] font-bold uppercase rounded-xl transition-all ${
-                    shiftType === 'afternoon' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                  }`}
-                >
-                  Pomeriggio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShiftType('full-day')}
-                  className={`flex-1 py-3 text-[10px] font-bold uppercase rounded-xl transition-all ${
-                    shiftType === 'full-day' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                  }`}
-                >
-                  Giorno
-                </button>
-              </div>
-            </div>
-          </div>
+    <div className="space-y-4">
+      {closed && (
+        <p className="flex items-center gap-2 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          <CalendarDays size={17} /> Il negozio è chiuso in questa data.
+        </p>
+      )}
+      {elsewhere.length > 0 && (
+        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Già in servizio in un'altra sede:
+          <ul className="mt-1 font-semibold text-slate-800">
+            {elsewhere.map(s => (
+              <li key={s.id}>
+                {shiftMeta(s.shiftType).label} · {otherShopName(s.shopId)}
+              </li>
+            ))}
+          </ul>
         </div>
+      )}
 
-        <button
-          type="submit"
-          className="w-full mt-8 bg-indigo-600 text-white font-bold py-5 rounded-2xl hover:bg-indigo-700 transition-all shadow-md hover:shadow-indigo-200 active:scale-[0.98] flex items-center justify-center gap-3 text-sm uppercase tracking-widest"
-        >
-          <Plus size={20} /> Salva Turno
-        </button>
-      </form>
-
-      {/* List / Edit Shifts */}
-      <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
-        <h3 className="text-sm font-bold text-slate-800 mb-6 uppercase tracking-wider">Turni di oggi ({date})</h3>
-        
-        {shifts.length === 0 ? (
-          <p className="text-center text-slate-400 text-xs italic py-4">Nessun turno programmato per questa data</p>
-        ) : (
-          <div className="space-y-3">
-            {shifts.map(shift => {
-              const emp = employees.find(e => e.id === shift.userId);
-              const isEditing = editingShiftId === shift.id;
-              
-              return (
-                <div key={shift.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl group hover:border-indigo-200 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-slate-600">
-                      <UserIcon size={18} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">{emp ? `${emp.nome} ${emp.cognome}` : 'Ex Dipendente'}</p>
-                      {isEditing ? (
-                        <div className="flex gap-2 mt-1">
-                          <button 
-                            onClick={() => handleUpdateShift(shift.id, 'morning')}
-                            className={`text-[9px] font-bold px-2 py-0.5 rounded-md ${shift.shiftType === 'morning' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-400'}`}
-                          >
-                            MATTINA
-                          </button>
-                          <button 
-                            onClick={() => handleUpdateShift(shift.id, 'afternoon')}
-                            className={`text-[9px] font-bold px-2 py-0.5 rounded-md ${shift.shiftType === 'afternoon' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-400'}`}
-                          >
-                            POMERIGGIO
-                          </button>
-                          <button 
-                            onClick={() => handleUpdateShift(shift.id, 'full-day')}
-                            className={`text-[9px] font-bold px-2 py-0.5 rounded-md ${shift.shiftType === 'full-day' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-400'}`}
-                          >
-                            GIORNO
-                          </button>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mt-0.5">
-                          {shift.shiftType === 'morning' ? 'Mattina' : shift.shiftType === 'afternoon' ? 'Pomeriggio' : 'Intera Giornata'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    {isEditing ? (
-                      <button 
-                        onClick={() => setEditingShiftId(null)}
-                        className="p-2 text-slate-400 hover:text-slate-600"
-                      >
-                        <X size={16} />
-                      </button>
-                    ) : (
-                      <>
-                        <button 
-                          onClick={() => setEditingShiftId(shift.id)}
-                          className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"
-                          title="Modifica"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteShift(shift.id)}
-                          className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                          title="Elimina"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Deletion Modal */}
-      <AnimatePresence>
-        {shiftToDelete && (
-          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl border border-slate-200 text-center"
+      <div className="grid gap-2">
+        {SHIFT_TYPE_LIST.map(meta => {
+          const existing = here.find(s => s.shiftType === meta.type);
+          const conflict = existing ? null : shiftConflict(shifts, meta.type);
+          const disabled = !!busy || (!existing && (closed || !!conflict));
+          return (
+            <button
+              key={meta.type}
+              disabled={disabled}
+              onClick={() => run(meta.type, () => (existing ? onRemove(existing.id) : onAdd(meta.type)))}
+              className={cn(
+                'flex items-center gap-3 rounded-2xl border px-4 h-14 text-left transition-all disabled:opacity-45 disabled:cursor-not-allowed',
+                existing ? cn(meta.soft, 'border-2') : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50',
+              )}
             >
-              <div className="w-16 h-16 bg-red-100 rounded-full mx-auto mb-4 flex items-center justify-center">
-                <Trash2 className="text-red-600 w-8 h-8" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Elimina Turno</h3>
-              <p className="text-slate-500 text-sm mb-6">Sei sicuro di voler eliminare questo turno? L'azione è irreversibile.</p>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShiftToDelete(null)}
-                  className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-slate-200 transition-all"
-                >
-                  Annulla
-                </button>
-                <button
-                  onClick={confirmDeleteShift}
-                  className="flex-1 py-3 bg-red-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
-                >
-                  Elimina
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+              <span className={cn('size-9 rounded-xl flex items-center justify-center', existing ? meta.solid : 'bg-slate-100 text-slate-500')}>
+                {busy === meta.type ? <Loader2 size={18} className="animate-spin" /> : <meta.icon size={18} />}
+              </span>
+              <span className="flex-1">
+                <span className="block font-semibold text-slate-800">{meta.label}</span>
+                {!existing && conflict && <span className="block text-xs text-slate-500">{conflict}</span>}
+              </span>
+              {existing ? (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600">
+                  <Trash2 size={14} /> Rimuovi
+                </span>
+              ) : (
+                !disabled && (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
+                    <Plus size={14} /> Assegna
+                  </span>
+                )
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

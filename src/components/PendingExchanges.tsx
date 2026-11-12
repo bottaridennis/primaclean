@@ -1,229 +1,258 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { collection, doc, getDoc, getDocs, query, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowLeftRight, Check, Clock, Loader2, X } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, getDoc } from 'firebase/firestore';
-import { ShiftExchange, User, Shift } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRightLeft, Check, X, Clock } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { useLiveQuery } from '../lib/hooks';
+import { shiftMeta } from '../lib/shifts';
+import { capitalize, cn, fmt, todayISO } from '../lib/utils';
+import type { Shift, ShiftExchange, User } from '../types';
+import { useToast } from './ui/Toast';
 
 interface Props {
   user: User;
-  employees: Record<string, string>;
+  /** Nomi già noti (es. colleghi del negozio attivo) */
+  names: Record<string, string>;
+  shopNames: Record<string, string>;
 }
 
-export default function PendingExchanges({ user, employees }: Props) {
-  const [exchanges, setExchanges] = useState<ShiftExchange[]>([]);
-  const [shiftsCache, setShiftsCache] = useState<Record<string, Shift>>({});
+type ShiftCache = Record<string, Shift | null>;
 
+export default function PendingExchanges({ user, names: knownNames, shopNames }: Props) {
+  const toast = useToast();
+  const enabled = user.isApproved || user.role === 'admin';
+
+  // Due liste separate: così quando uno scambio esce da "pending" sparisce davvero
+  const { data: incoming } = useLiveQuery<ShiftExchange>(
+    enabled
+      ? () => query(collection(db, 'shiftExchanges'), where('targetUserId', '==', user.id), where('status', '==', 'pending'))
+      : null,
+    `ex-in-${user.id}-${enabled}`,
+  );
+  const { data: outgoing } = useLiveQuery<ShiftExchange>(
+    enabled
+      ? () => query(collection(db, 'shiftExchanges'), where('requesterId', '==', user.id), where('status', '==', 'pending'))
+      : null,
+    `ex-out-${user.id}-${enabled}`,
+  );
+
+  const exchanges = useMemo(
+    () => [...incoming, ...outgoing].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [incoming, outgoing],
+  );
+
+  const [shifts, setShifts] = useState<ShiftCache>({});
+  const [extraNames, setExtraNames] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const names = { ...extraNames, ...knownNames };
+
+  // Carica i turni coinvolti (anche ricaricandoli quando la lista cambia, per avere dati aggiornati)
+  const shiftKey = exchanges.map(e => `${e.requesterShiftId}|${e.targetShiftId}`).join(',');
   useEffect(() => {
-    if (!user.isApproved && user.role !== 'admin') return;
-
-    // Listen for exchanges where I am the TARGET and status is pending
-    const qTarget = query(
-      collection(db, 'shiftExchanges'),
-      where('targetUserId', '==', user.id),
-      where('status', '==', 'pending')
-    );
-
-    // Also listen to exchanges where I am the REQUESTER (to show status)
-    const qRequester = query(
-      collection(db, 'shiftExchanges'),
-      where('requesterId', '==', user.id),
-      where('status', '==', 'pending')
-    );
-
-    const handleExchanges = (docs: any[]) => {
-      setExchanges(prev => {
-        const newMap = new Map<string, ShiftExchange>(prev.map(e => [e.id!, e]));
-        docs.forEach(doc => newMap.set(doc.id, { id: doc.id, ...doc.data() } as ShiftExchange));
-        return Array.from(newMap.values()).filter(e => e.status === 'pending');
-      });
-    };
-
-    const unsubTarget = onSnapshot(qTarget, (snap) => handleExchanges(snap.docs));
-    const unsubReq = onSnapshot(qRequester, (snap) => handleExchanges(snap.docs));
-
-    return () => {
-      unsubTarget();
-      unsubReq();
-    };
-  }, [user.id]);
-
-  // Fetch shift details when we get new exchanges
-  useEffect(() => {
-    if (exchanges.length === 0) return;
-
-    const fetchShifts = async () => {
-      const neededIds = new Set<string>();
-      exchanges.forEach(e => {
-        if (!shiftsCache[e.requesterShiftId]) neededIds.add(e.requesterShiftId);
-        if (!shiftsCache[e.targetShiftId]) neededIds.add(e.targetShiftId);
-      });
-
-      if (neededIds.size === 0) return;
-
-      const newCache = { ...shiftsCache };
-      for (const id of neededIds) {
+    if (!exchanges.length) return;
+    let cancelled = false;
+    const ids = Array.from(new Set(exchanges.flatMap(e => [e.requesterShiftId, e.targetShiftId])));
+    Promise.all(
+      ids.map(async id => {
         try {
-          const docRef = doc(db, 'shifts', id);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            newCache[id] = { id: docSnap.id, ...docSnap.data() } as Shift;
-          }
-        } catch (err) {
-          console.error("Error fetching shift", err);
+          const snap = await getDoc(doc(db, 'shifts', id));
+          return [id, snap.exists() ? ({ id: snap.id, ...snap.data() } as Shift) : null] as const;
+        } catch {
+          return [id, null] as const;
         }
-      }
-      setShiftsCache(newCache);
+      }),
+    ).then(entries => !cancelled && setShifts(Object.fromEntries(entries)));
+    return () => {
+      cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shiftKey]);
 
-    fetchShifts();
-  }, [exchanges]);
+  // Recupera i nomi dei colleghi di altri negozi
+  const shopKey = Array.from(new Set(exchanges.map(e => e.shopId))).sort().join(',');
+  useEffect(() => {
+    if (!shopKey) return;
+    shopKey.split(',').forEach(async shopId => {
+      try {
+        const snap = await getDocs(query(collection(db, 'users'), where('shopIds', 'array-contains', shopId)));
+        const found: Record<string, string> = {};
+        snap.forEach(d => (found[d.id] = `${d.data().nome} ${d.data().cognome}`));
+        setExtraNames(prev => ({ ...prev, ...found }));
+      } catch {
+        /* nomi non disponibili: verrà mostrato "Collega" */
+      }
+    });
+  }, [shopKey]);
 
-  const handleAction = async (exchange: ShiftExchange, action: 'accepted' | 'rejected') => {
+  const isValid = (e: ShiftExchange, cache: ShiftCache = shifts) => {
+    const req = cache[e.requesterShiftId];
+    const tgt = cache[e.targetShiftId];
+    const today = todayISO();
+    return !!req && !!tgt && req.userId === e.requesterId && tgt.userId === e.targetUserId && req.date >= today && tgt.date >= today;
+  };
+
+  const setStatus = async (e: ShiftExchange, status: 'rejected', msg: string) => {
+    setBusyId(e.id);
     try {
-      if (action === 'rejected') {
-        await updateDoc(doc(db, 'shiftExchanges', exchange.id), { status: 'rejected' });
-        setExchanges(prev => prev.filter(e => e.id !== exchange.id));
+      await updateDoc(doc(db, 'shiftExchanges', e.id), { status });
+      toast.success(msg);
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const accept = async (e: ShiftExchange) => {
+    setBusyId(e.id);
+    try {
+      // Rilegge i turni per evitare di scambiare dati non più attuali
+      const [reqSnap, tgtSnap] = await Promise.all([
+        getDoc(doc(db, 'shifts', e.requesterShiftId)),
+        getDoc(doc(db, 'shifts', e.targetShiftId)),
+      ]);
+      const fresh: ShiftCache = {
+        [e.requesterShiftId]: reqSnap.exists() ? ({ id: reqSnap.id, ...reqSnap.data() } as Shift) : null,
+        [e.targetShiftId]: tgtSnap.exists() ? ({ id: tgtSnap.id, ...tgtSnap.data() } as Shift) : null,
+      };
+      if (!isValid(e, fresh)) {
+        await updateDoc(doc(db, 'shiftExchanges', e.id), { status: 'rejected' });
+        toast.error('Uno dei turni è stato modificato nel frattempo: lo scambio non è più valido.');
         return;
       }
-
-      if (action === 'accepted') {
-        const batch = writeBatch(db);
-        
-        // Update exchange status
-        batch.update(doc(db, 'shiftExchanges', exchange.id), { status: 'accepted' });
-
-        // Swap the userIds of the two shifts
-        // requesterShift gives to targetUserId
-        // targetShift gives to requesterId
-        const reqShiftRef = doc(db, 'shifts', exchange.requesterShiftId);
-        const tgtShiftRef = doc(db, 'shifts', exchange.targetShiftId);
-
-        batch.update(reqShiftRef, { userId: exchange.targetUserId });
-        batch.update(tgtShiftRef, { userId: exchange.requesterId });
-
-        // Create an exchange log
-        const reqShift = shiftsCache[exchange.requesterShiftId];
-        const tgtShift = shiftsCache[exchange.targetShiftId];
-
-        if (reqShift && tgtShift) {
-          const logRef = doc(collection(db, 'exchangeLogs'));
-          batch.set(logRef, {
-            requesterId: exchange.requesterId,
-            requesterName: employees[exchange.requesterId] || 'Sconosciuto',
-            targetUserId: exchange.targetUserId,
-            targetUserName: employees[exchange.targetUserId] || 'Sconosciuto',
-            requesterShiftDate: reqShift.date,
-            requesterShiftType: reqShift.shiftType,
-            targetShiftDate: tgtShift.date,
-            targetShiftType: tgtShift.shiftType,
-            shopId: exchange.shopId,
-            acceptedAt: new Date().toISOString()
-          });
-        }
-
-        await batch.commit();
-        setExchanges(prev => prev.filter(e => e.id !== exchange.id));
-      }
+      const req = fresh[e.requesterShiftId]!;
+      const tgt = fresh[e.targetShiftId]!;
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'shiftExchanges', e.id), { status: 'accepted' });
+      batch.update(doc(db, 'shifts', req.id), { userId: e.targetUserId });
+      batch.update(doc(db, 'shifts', tgt.id), { userId: e.requesterId });
+      batch.set(doc(collection(db, 'exchangeLogs')), {
+        requesterId: e.requesterId,
+        requesterName: names[e.requesterId] ?? 'Sconosciuto',
+        targetUserId: e.targetUserId,
+        targetUserName: names[e.targetUserId] ?? `${user.nome} ${user.cognome}`,
+        requesterShiftDate: req.date,
+        requesterShiftType: req.shiftType,
+        targetShiftDate: tgt.date,
+        targetShiftType: tgt.shiftType,
+        shopId: e.shopId,
+        acceptedAt: new Date().toISOString(),
+      });
+      await batch.commit();
+      toast.success('Scambio accettato: la tua agenda è stata aggiornata.');
     } catch (err) {
-      console.error("Error handling exchange action:", err);
+      toast.error(err);
+    } finally {
+      setBusyId(null);
     }
   };
 
   if (exchanges.length === 0) return null;
 
   return (
-    <div className="mb-8 space-y-4">
-      {exchanges.map(exchange => {
-        const isRequester = exchange.requesterId === user.id;
-        const myShift = shiftsCache[isRequester ? exchange.requesterShiftId : exchange.targetShiftId];
-        const theirShift = shiftsCache[isRequester ? exchange.targetShiftId : exchange.requesterShiftId];
-        const otherUserId = isRequester ? exchange.targetUserId : exchange.requesterId;
-        const otherUserName = employees[otherUserId] || 'Collega';
+    <section className="space-y-3" aria-label="Scambi di turno in attesa">
+      <AnimatePresence initial={false}>
+        {exchanges.map(e => {
+          const isRequester = e.requesterId === user.id;
+          const myShift = shifts[isRequester ? e.requesterShiftId : e.targetShiftId];
+          const theirShift = shifts[isRequester ? e.targetShiftId : e.requesterShiftId];
+          const otherName = names[isRequester ? e.targetUserId : e.requesterId] ?? 'Un collega';
+          const loaded = e.requesterShiftId in shifts && e.targetShiftId in shifts;
+          const valid = loaded && isValid(e);
+          const busy = busyId === e.id;
 
-        if (!myShift || !theirShift) return null;
+          return (
+            <motion.article
+              key={e.id}
+              layout
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              className={cn(
+                'card overflow-hidden border-l-4',
+                isRequester ? 'border-l-slate-300' : 'border-l-brand-500',
+              )}
+            >
+              <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center gap-4">
+                <div className="flex items-center gap-3 lg:w-64 shrink-0">
+                  <span
+                    className={cn(
+                      'size-10 rounded-2xl flex items-center justify-center shrink-0',
+                      isRequester ? 'bg-slate-100 text-slate-500' : 'bg-brand-100 text-brand-700',
+                    )}
+                  >
+                    {isRequester ? <Clock size={19} /> : <ArrowLeftRight size={19} />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900">
+                      {isRequester ? 'Proposta in attesa' : `${otherName.split(' ')[0]} ti propone uno scambio`}
+                    </p>
+                    <p className="text-[13px] text-slate-500 truncate">
+                      {isRequester ? `In attesa di risposta da ${otherName}` : shopNames[e.shopId] ?? ''}
+                    </p>
+                  </div>
+                </div>
 
-        return (
-          <motion.div
-            key={exchange.id}
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className={`p-4 rounded-3xl border-2 shadow-sm ${
-              isRequester ? 'bg-amber-50/50 border-amber-100' : 'bg-indigo-50 border-indigo-200'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h4 className={`text-xs font-black uppercase tracking-widest ${
-                isRequester ? 'text-amber-600' : 'text-indigo-600'
-              }`}>
-                {isRequester ? 'Proposta in attesa' : `Richiesta da ${otherUserName}`}
-              </h4>
-              <ArrowRightLeft className={isRequester ? "text-amber-400" : "text-indigo-400"} size={16} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 items-center">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">
-                  Tu cedi:
-                </p>
-                <div className="bg-white p-3 rounded-2xl border border-slate-100">
-                  <p className="font-bold text-slate-800 text-sm">
-                    {format(parseISO(myShift.date), 'dd MMM', { locale: it })}
+                {!loaded ? (
+                  <div className="flex-1 flex items-center gap-2 text-sm text-slate-400">
+                    <Loader2 size={16} className="animate-spin" /> Caricamento dettagli…
+                  </div>
+                ) : !valid ? (
+                  <p className="flex-1 text-sm text-slate-500">
+                    Questo scambio non è più valido: uno dei turni è stato modificato, eliminato o è già passato.
                   </p>
-                  <p className="text-xs text-slate-500 uppercase">
-                     {myShift.shiftType === 'morning' ? 'Mattina' : myShift.shiftType === 'afternoon' ? 'Pomeriggio' : 'Intero'}
-                  </p>
+                ) : (
+                  <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <ShiftBox label="Cedi" shift={myShift!} />
+                    <ArrowLeftRight size={16} className="text-slate-400" />
+                    <ShiftBox label="Ricevi" shift={theirShift!} />
+                  </div>
+                )}
+
+                <div className="flex gap-2 lg:w-auto">
+                  {isRequester || !valid ? (
+                    <button
+                      className="btn btn-secondary flex-1 lg:flex-none"
+                      disabled={busy}
+                      onClick={() => setStatus(e, 'rejected', valid ? 'Proposta annullata.' : 'Scambio rimosso.')}
+                    >
+                      {busy && <Loader2 size={16} className="animate-spin" />}
+                      {valid ? 'Annulla proposta' : 'Rimuovi'}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        className="btn btn-secondary"
+                        disabled={busy}
+                        onClick={() => setStatus(e, 'rejected', 'Proposta rifiutata.')}
+                        aria-label="Rifiuta scambio"
+                      >
+                        <X size={17} /> <span className="lg:hidden xl:inline">Rifiuta</span>
+                      </button>
+                      <button className="btn btn-primary flex-1 lg:flex-none" disabled={busy} onClick={() => accept(e)}>
+                        {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={17} />} Accetta
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
+            </motion.article>
+          );
+        })}
+      </AnimatePresence>
+    </section>
+  );
+}
 
-              <div>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">
-                  {isRequester ? 'E ricevi:' : 'In cambio di:'}
-                </p>
-                <div className="bg-white p-3 rounded-2xl border border-slate-100">
-                  <p className="font-bold text-slate-800 text-sm">
-                    {format(parseISO(theirShift.date), 'dd MMM', { locale: it })}
-                  </p>
-                  <p className="text-xs text-slate-500 uppercase">
-                     {theirShift.shiftType === 'morning' ? 'Mattina' : theirShift.shiftType === 'afternoon' ? 'Pomeriggio' : 'Intero'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {!isRequester && (
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={() => handleAction(exchange, 'accepted')}
-                  className="flex-1 bg-indigo-600 text-white font-black uppercase tracking-widest py-3 rounded-2xl hover:bg-indigo-700 transition flex justify-center items-center gap-2"
-                >
-                  <Check size={18} />
-                  <span>Accetta</span>
-                </button>
-                <button
-                  onClick={() => handleAction(exchange, 'rejected')}
-                  className="px-6 bg-white text-slate-400 border border-slate-200 font-bold uppercase tracking-widest py-3 rounded-2xl hover:bg-slate-50 hover:text-slate-600 transition flex justify-center items-center"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            )}
-            {isRequester && (
-               <div className="flex gap-2 mt-4">
-                 <button
-                  onClick={() => handleAction(exchange, 'rejected')}
-                  className="w-full bg-white text-slate-400 border border-slate-200 font-bold uppercase tracking-widest text-[10px] py-2 rounded-xl hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition"
-                >
-                  Annulla Richiesta
-                </button>
-               </div>
-            )}
-          </motion.div>
-        );
-      })}
+function ShiftBox({ label, shift }: { label: string; shift: Shift }) {
+  const meta = shiftMeta(shift.shiftType);
+  return (
+    <div className={cn('rounded-2xl border px-3 py-2', meta.soft)}>
+      <p className="text-[11px] font-bold uppercase tracking-wider opacity-70">{label}</p>
+      <p className="font-bold text-sm">{capitalize(fmt(shift.date, 'EEE d MMM'))}</p>
+      <p className="text-[13px] opacity-80 flex items-center gap-1">
+        <meta.icon size={12} /> {meta.label}
+      </p>
     </div>
   );
 }

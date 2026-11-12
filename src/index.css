@@ -1,19 +1,121 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand: "acqua pulita" — teal fresco, tipico del mondo lavanderia */
+  --color-brand-50: #eefbfb;
+  --color-brand-100: #d4f3f4;
+  --color-brand-200: #aee6ea;
+  --color-brand-300: #77d2da;
+  --color-brand-400: #3bb4c1;
+  --color-brand-500: #1f97a6;
+  --color-brand-600: #1a7a8b;
+  --color-brand-700: #1b6372;
+  --color-brand-800: #1d515e;
+  --color-brand-900: #1c4450;
+  --color-brand-950: #0c2c35;
+
+  /* Sfondo "lino" */
+  --color-linen: #f3f6f7;
+
+  --shadow-soft: 0 1px 2px rgb(15 40 50 / 0.04), 0 4px 16px -4px rgb(15 40 50 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(15 40 50 / 0.05), 0 16px 40px -12px rgb(15 40 50 / 0.18);
 }
 
 @layer base {
-  /* Hide scrollbar for Chrome, Safari and Opera */
-  *::-webkit-scrollbar {
-    display: none;
+  html {
+    -webkit-tap-highlight-color: transparent;
   }
 
-  /* Hide scrollbar for IE, Edge and Firefox */
-  * {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+  body {
+    @apply bg-linen text-slate-800 antialiased;
   }
+
+  /* Scrollbar sottili e discrete (non nascoste: servono su desktop) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.5) transparent;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-3xl border border-slate-200/70 shadow-soft;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 h-11 text-sm font-semibold transition-all select-none active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap;
+  }
+  .btn-sm {
+    @apply h-9 px-3 text-[13px] rounded-xl;
+  }
+  .btn-lg {
+    @apply h-13 px-6 text-[15px];
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white shadow-sm shadow-brand-900/10 hover:bg-brand-700;
+  }
+  .btn-dark {
+    @apply bg-brand-950 text-white hover:bg-brand-900;
+  }
+  .btn-secondary {
+    @apply bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300;
+  }
+  .btn-ghost {
+    @apply text-slate-600 hover:bg-slate-100;
+  }
+  .btn-danger {
+    @apply bg-rose-600 text-white hover:bg-rose-700;
+  }
+  .btn-icon {
+    @apply inline-flex items-center justify-center size-10 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors disabled:opacity-40;
+  }
+
+  .field-label {
+    @apply block text-[13px] font-semibold text-slate-600 mb-1.5;
+  }
+  .input {
+    @apply w-full h-12 px-4 rounded-2xl bg-white border border-slate-200 text-[15px] text-slate-800 placeholder:text-slate-400 outline-none transition-all focus:border-brand-400 focus:ring-4 focus:ring-brand-100;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.12em] text-slate-400;
+  }
+}
+
+/* Pattern "bolle di sapone" usato nelle superfici del brand */
+.bubbles {
+  background-image:
+    radial-gradient(circle at 18% 22%, rgb(255 255 255 / 0.16) 0 46px, transparent 47px),
+    radial-gradient(circle at 78% 14%, rgb(255 255 255 / 0.10) 0 28px, transparent 29px),
+    radial-gradient(circle at 64% 72%, rgb(255 255 255 / 0.12) 0 70px, transparent 71px),
+    radial-gradient(circle at 12% 84%, rgb(255 255 255 / 0.08) 0 22px, transparent 23px),
+    radial-gradient(circle at 92% 58%, rgb(255 255 255 / 0.09) 0 16px, transparent 17px);
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.striped-closed {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(244 63 94 / 0.06) 0 8px,
+    transparent 8px 16px
+  );
 }
