@@ -1,238 +1,265 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { collection, query, where } from 'firebase/firestore';
+import { addWeeks, differenceInCalendarDays, isSameDay, parseISO } from 'date-fns';
+import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Shirt, Store, Users } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { User, Shop, Shift } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
-import { Clock, MapPin, Store, ChevronRight, ArrowRightLeft } from 'lucide-react';
-import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
-import { it } from 'date-fns/locale';
-import ShiftExchangeModal from './ShiftExchangeModal';
+import { useApprovedUsers, useLiveQuery, useShopMembers, useShops } from '../lib/hooks';
+import { SHIFT_TYPE_LIST, shiftMeta, sortShifts } from '../lib/shifts';
+import { capitalize, cn, fmt, fullName, isShopClosed, toISODate, todayISO, weekDays, weekLabel } from '../lib/utils';
+import type { Shift, User } from '../types';
+import { EmptyState, PageHeader, PillTabs, Segmented, Spinner } from './ui/Primitives';
 import PendingExchanges from './PendingExchanges';
+import ShiftExchangeModal from './ShiftExchangeModal';
 
 interface Props {
   user: User;
 }
 
 export default function EmployeeSchedule({ user }: Props) {
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [activeShopId, setActiveShopId] = useState<string>('');
-  const [employees, setEmployees] = useState<Record<string, string>>({});
-  const [selectedMyShift, setSelectedMyShift] = useState<Shift | null>(null);
-
   const isAdmin = user.role === 'admin';
+  const canSeeAll = isAdmin || user.canSeeColleagues;
+  const canExchange = canSeeAll;
 
-  // Always show current week
-  const weekDays = useMemo(() => {
-    const start = startOfWeek(new Date(), { weekStartsOn: 1 });
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  }, []);
+  const { data: allShops, loading: shopsLoading } = useShops();
+  const shops = useMemo(
+    () => (isAdmin ? allShops : allShops.filter(s => (user.shopIds ?? []).includes(s.id))),
+    [allShops, isAdmin, user.shopIds],
+  );
 
-  useEffect(() => {
-    const unsubscribeShops = onSnapshot(collection(db, 'shops'), (snapshot) => {
-      const shopsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shop));
-      setShops(shopsData);
-      if (shopsData.length > 0 && !activeShopId) {
-        const initial = isAdmin ? shopsData[0].id : (user.shopIds?.[0] || shopsData[0].id);
-        setActiveShopId(initial);
-      }
-    });
-    return () => unsubscribeShops();
-  }, [isAdmin, user.shopIds, activeShopId]);
+  const [shopId, setShopId] = useState('');
+  const [anchor, setAnchor] = useState(() => new Date());
+  const [onlyMine, setOnlyMine] = useState<'all' | 'mine'>(canSeeAll ? 'all' : 'mine');
+  const [exchangeShift, setExchangeShift] = useState<Shift | null>(null);
 
   useEffect(() => {
-    if (!activeShopId || (!user.isApproved && !isAdmin)) return;
+    if (shops.length && !shops.some(s => s.id === shopId)) setShopId(shops[0].id);
+  }, [shops, shopId]);
 
-    const qEmployees = query(collection(db, 'users'), where('shopIds', 'array-contains', activeShopId));
-    const unsubscribeEmployees = onSnapshot(qEmployees, (snapshot) => {
-      const names: Record<string, string> = {};
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        names[doc.id] = `${data.nome} ${data.cognome}`;
-      });
-      setEmployees(names);
-    });
+  const shop = shops.find(s => s.id === shopId);
+  const days = useMemo(() => weekDays(anchor), [anchor]);
+  const today = todayISO();
 
-    const baseQuery = collection(db, 'shifts');
-    let qShifts;
+  const { data: shifts, loading } = useLiveQuery<Shift>(
+    shopId
+      ? () =>
+          canSeeAll
+            ? query(collection(db, 'shifts'), where('shopId', '==', shopId))
+            : query(collection(db, 'shifts'), where('shopId', '==', shopId), where('userId', '==', user.id))
+      : null,
+    `schedule-${shopId}-${canSeeAll}-${user.id}`,
+  );
 
-    if (isAdmin || user.canSeeColleagues) {
-      qShifts = query(baseQuery, where('shopId', '==', activeShopId));
-    } else {
-      // Employees who CANNOT see colleagues must filter by their own userId
-      // and also shopId to satisfy the composite rule requirements
-      qShifts = query(baseQuery, where('shopId', '==', activeShopId), where('userId', '==', user.id));
-    }
+  // Nomi: l'admin vede tutto il personale, il dipendente i colleghi del negozio
+  const { data: members } = useShopMembers(isAdmin ? null : shopId);
+  const { data: everyone } = useApprovedUsers(isAdmin);
+  const names = useMemo(() => {
+    const out: Record<string, string> = {};
+    (isAdmin ? everyone : members).forEach(u => (out[u.id] = fullName(u)));
+    out[user.id] = fullName(user);
+    return out;
+  }, [isAdmin, everyone, members, user]);
+  const shopNames = useMemo(() => Object.fromEntries(allShops.map(s => [s.id, s.name])), [allShops]);
 
-    const unsubscribeShifts = onSnapshot(qShifts, (snapshot) => {
-      setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
-    });
+  const myUpcoming = useMemo(
+    () =>
+      shifts
+        .filter(s => s.userId === user.id && s.date >= today)
+        .sort((a, b) => a.date.localeCompare(b.date) || shiftMeta(a.shiftType).order - shiftMeta(b.shiftType).order),
+    [shifts, user.id, today],
+  );
+  const nextShift = myUpcoming[0];
 
-    return () => {
-      unsubscribeEmployees();
-      unsubscribeShifts();
-    };
-  }, [activeShopId, isAdmin, user.id, user.isApproved]);
+  const isoDays = days.map(toISODate);
+  const myWeekCount = shifts.filter(s => s.userId === user.id && isoDays.includes(s.date)).length;
 
-  const activeShop = useMemo(() => shops.find(s => s.id === activeShopId), [shops, activeShopId]);
-  
-  const getDayShifts = (date: Date) => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const filtered = shifts.filter(s => s.date === dateStr);
-    
-    if (!isAdmin && !user.canSeeColleagues) {
-      return filtered.filter(s => s.userId === user.id);
-    }
-    return filtered.sort((a, b) => {
-      const order = { 'morning': 1, 'afternoon': 2, 'full-day': 0 };
-      return (order[a.shiftType] || 0) - (order[b.shiftType] || 0);
-    });
+  const dayShifts = (iso: string) => {
+    const list = shifts.filter(s => s.date === iso && (onlyMine === 'all' || s.userId === user.id));
+    // I miei turni in cima, poi in ordine di fascia
+    return sortShifts(list).sort((a, b) => Number(b.userId === user.id) - Number(a.userId === user.id));
   };
 
+  if (shopsLoading) return <Spinner label="Caricamento agenda…" />;
+
+  if (shops.length === 0) {
+    return (
+      <div>
+        <PageHeader title={isAdmin ? 'Agenda negozi' : 'I miei turni'} />
+        <div className="card">
+          <EmptyState
+            icon={Store}
+            title={isAdmin ? 'Nessun negozio configurato' : 'Non sei ancora assegnato a un negozio'}
+            description={isAdmin ? 'Crea un negozio dalla sezione «Negozi e chiusure».' : 'Contatta il tuo responsabile per essere assegnato a un punto vendita.'}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto pb-10">
-      {/* SHOP SELECTOR */}
-      <div className="flex flex-wrap gap-2 px-1">
-        {shops.filter(s => isAdmin || (user.shopIds || []).includes(s.id)).map(s => (
-          <button
-            key={s.id}
-            onClick={() => setActiveShopId(s.id)}
-            className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              activeShopId === s.id 
-                ? 'bg-slate-900 text-white shadow-lg' 
-                : 'bg-white text-slate-400 border border-slate-100 hover:border-slate-200'
-            }`}
-          >
-            {s.name}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title={isAdmin ? 'Agenda negozi' : `Ciao, ${user.nome}`}
+        description={isAdmin ? 'Vista settimanale dei turni per ogni punto vendita.' : 'Ecco la tua agenda di lavoro.'}
+      />
 
-      <PendingExchanges user={user} employees={employees} />
-
-      <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 italic-text-none">
-        <div className="flex items-center justify-between mb-8 px-2">
-          <div>
-            <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">
-              Agenda Settimanale
-            </h3>
-            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-[0.2em]">
-              {format(weekDays[0], 'd MMMM', { locale: it })} - {format(weekDays[6], 'd MMMM yyyy', { locale: it })}
-            </p>
+      {/* Prossimo turno */}
+      {!isAdmin && (
+        <section className="relative overflow-hidden rounded-[28px] bg-brand-800 bubbles text-white p-5 sm:p-6">
+          <div className="absolute -right-10 -bottom-10 size-48 rounded-full bg-brand-500/30 blur-2xl" />
+          <div className="relative flex items-center gap-4">
+            <span className="size-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+              {nextShift ? (() => { const I = shiftMeta(nextShift.shiftType).icon; return <I size={26} />; })() : <Shirt size={26} />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-brand-100/80">Il tuo prossimo turno · {shop?.name}</p>
+              {nextShift ? (
+                <>
+                  <p className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                    {relativeDay(nextShift.date)} · {shiftMeta(nextShift.shiftType).label}
+                  </p>
+                  <p className="text-sm text-brand-100/80">{capitalize(fmt(nextShift.date, 'EEEE d MMMM'))}</p>
+                </>
+              ) : (
+                <p className="text-xl font-extrabold">Nessun turno in programma</p>
+              )}
+            </div>
+            <div className="hidden sm:block text-right">
+              <p className="text-3xl font-extrabold">{myWeekCount}</p>
+              <p className="text-sm text-brand-100/80">turni in settimana</p>
+            </div>
           </div>
-          <div className="hidden md:flex items-center gap-2 bg-indigo-50 px-4 py-2 rounded-2xl">
-            <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
-            <span className="text-[10px] font-black text-indigo-600 uppercase">Live Update</span>
-          </div>
-        </div>
-
-        {/* CALENDAR VIEW: RESPONSIVE GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
-          {weekDays.map((day) => {
-            const shiftsForDay = getDayShifts(day);
-            const isToday = isSameDay(day, new Date());
-            const isClosed = activeShop?.closedHolidays.includes(format(day, 'yyyy-MM-dd'));
-
-            return (
-              <div 
-                key={day.toISOString()} 
-                className={`flex flex-col md:min-h-[400px] rounded-[2rem] border transition-all ${
-                  isToday ? 'bg-slate-50/50 border-indigo-200 ring-2 ring-indigo-50' : 'bg-white border-slate-100'
-                }`}
-              >
-                {/* Header Giorno */}
-                <div className={`p-4 border-b flex md:flex-col items-center justify-between md:justify-center gap-2 ${
-                  isToday ? 'border-indigo-100' : 'border-slate-100'
-                }`}>
-                   <div className="text-left md:text-center">
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${isToday ? 'text-indigo-600' : 'text-slate-400'}`}>
-                      {format(day, 'EEEE', { locale: it })}
-                    </p>
-                    <p className={`text-xl font-black ${isToday ? 'text-indigo-900' : 'text-slate-700'}`}>
-                      {format(day, 'd MMM')}
-                    </p>
-                  </div>
-                  {isToday && <div className="bg-indigo-600 text-white text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-tighter">Oggi</div>}
-                </div>
-
-                {/* Turni del Giorno */}
-                <div className="p-4 flex-1 space-y-3">
-                  {isClosed ? (
-                    <div className="flex flex-col items-center justify-center py-4 md:py-20 opacity-40">
-                      <Store size={24} className="text-red-400 mb-2" />
-                      <p className="text-[9px] font-black text-red-600 uppercase tracking-tighter">Chiuso</p>
-                    </div>
-                  ) : shiftsForDay.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-4 md:py-20 opacity-30">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Riposo</p>
-                    </div>
-                  ) : (
-                    shiftsForDay.map(shift => (
-                      <motion.div
-                        key={shift.id}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className={`p-3 rounded-2xl border relative overflow-hidden group ${
-                          shift.userId === user.id 
-                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-md' 
-                            : 'bg-white border-slate-100 shadow-sm'
-                        }`}
-                      >
-                        <p className={`text-[8px] font-black uppercase tracking-widest mb-1 ${
-                          shift.userId === user.id ? 'text-white/60' : 'text-slate-400'
-                        }`}>
-                          {shift.userId === user.id ? 'Tuo Turno' : (employees[shift.userId]?.split(' ')[0] || 'Staff')}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-black tracking-tight leading-none uppercase">
-                            {shift.shiftType === 'morning' ? 'Mattina' : shift.shiftType === 'afternoon' ? 'Pomeriggio' : 'Giorno Intero'}
-                          </p>
-                          <Clock size={12} className={shift.userId === user.id ? 'text-white/50' : 'text-slate-300'} />
-                        </div>
-                        {shift.userId === user.id && (isAdmin || user.canSeeColleagues) && (
-                          <div className="mt-2 pt-2 border-t border-indigo-500/30 flex justify-end">
-                             <button
-                               onClick={() => setSelectedMyShift(shift)}
-                               className="flex items-center gap-1 text-[9px] font-bold text-white uppercase tracking-wider hover:text-indigo-200 transition"
-                             >
-                               <ArrowRightLeft size={10} />
-                               Scambia
-                             </button>
-                          </div>
-                        )}
-                        {shift.userId === user.id && (
-                          <div className="absolute top-0 right-0 p-1 opacity-10 pointer-events-none">
-                            <Store size={32} />
-                          </div>
-                        )}
-                      </motion.div>
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {selectedMyShift && (
-        <ShiftExchangeModal
-          isOpen={!!selectedMyShift}
-          onClose={() => setSelectedMyShift(null)}
-          myShift={selectedMyShift}
-          allShifts={shifts}
-          employees={employees}
-          user={user}
-        />
+        </section>
       )}
+
+      <PendingExchanges user={user} names={names} shopNames={shopNames} />
+
+      {shops.length > 1 && (
+        <PillTabs ariaLabel="Negozio" value={shopId} onChange={setShopId} options={shops.map(s => ({ value: s.id, label: s.name }))} />
+      )}
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 p-3 sm:p-4 border-b border-slate-100">
+          <button className="btn-icon" onClick={() => setAnchor(a => addWeeks(a, -1))} aria-label="Settimana precedente">
+            <ChevronLeft size={20} />
+          </button>
+          <div className="flex-1 min-w-40 text-center sm:text-left">
+            <p className="font-bold text-slate-900">{weekLabel(days)}</p>
+            <p className="text-[13px] text-slate-500">{shop?.name}</p>
+          </div>
+          <button className="btn-icon" onClick={() => setAnchor(a => addWeeks(a, 1))} aria-label="Settimana successiva">
+            <ChevronRight size={20} />
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(new Date())} disabled={days.some(d => isSameDay(d, new Date()))}>
+            Oggi
+          </button>
+          {canSeeAll && (
+            <Segmented<'all' | 'mine'>
+              className="w-full sm:w-auto sm:ml-2"
+              value={onlyMine}
+              onChange={setOnlyMine}
+              options={[
+                { value: 'all', label: <><Users size={15} /> Tutti</> },
+                { value: 'mine', label: 'Solo i miei' },
+              ]}
+            />
+          )}
+        </div>
+
+        {loading ? (
+          <Spinner className="py-20" />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-7 md:divide-x divide-slate-100">
+            {days.map(day => {
+              const iso = toISODate(day);
+              const isToday = iso === today;
+              const isPast = iso < today;
+              const closed = isShopClosed(shop, iso);
+              const list = dayShifts(iso);
+              return (
+                <div
+                  key={iso}
+                  className={cn(
+                    'flex md:flex-col border-b md:border-b-0 border-slate-100 last:border-b-0 md:min-h-[340px]',
+                    isToday && 'bg-brand-50/50',
+                    isPast && 'opacity-60',
+                    closed && 'striped-closed',
+                  )}
+                >
+                  <div className="w-20 md:w-auto shrink-0 px-3 py-4 md:py-3 md:text-center md:border-b md:border-slate-100">
+                    <p className={cn('text-xs font-semibold uppercase tracking-wide', isToday ? 'text-brand-600' : 'text-slate-400')}>
+                      {fmt(day, 'EEE')}
+                    </p>
+                    <p className={cn('text-2xl font-extrabold leading-tight', isToday ? 'text-brand-700' : 'text-slate-800')}>{fmt(day, 'd')}</p>
+                    {isToday && <span className="chip bg-brand-600 text-white text-[10px] px-2 py-0.5 mt-0.5">Oggi</span>}
+                  </div>
+                  <div className="flex-1 p-2.5 space-y-2 min-w-0">
+                    {closed ? (
+                      <p className="h-full min-h-12 flex items-center md:justify-center gap-1.5 text-sm font-semibold text-rose-600">
+                        <Store size={16} /> Chiuso
+                      </p>
+                    ) : list.length === 0 ? (
+                      <p className="h-full min-h-12 flex items-center md:justify-center text-sm text-slate-300">
+                        {onlyMine === 'mine' || !canSeeAll ? 'Riposo' : 'Nessun turno'}
+                      </p>
+                    ) : (
+                      list.map(s => {
+                        const meta = shiftMeta(s.shiftType);
+                        const mine = s.userId === user.id;
+                        const exchangeable = mine && canExchange && s.date >= today;
+                        return (
+                          <div key={s.id} className={cn('rounded-2xl p-2.5 border', mine ? cn(meta.solid, 'border-transparent shadow-sm') : meta.soft)}>
+                            <p className={cn('text-[12px] font-semibold truncate', mine ? 'text-white/80' : 'opacity-80')}>
+                              {mine ? 'Il tuo turno' : names[s.userId] ?? 'Collega'}
+                            </p>
+                            <p className="text-sm font-bold flex items-center gap-1.5">
+                              <meta.icon size={14} /> {meta.label}
+                            </p>
+                            {exchangeable && (
+                              <button
+                                onClick={() => setExchangeShift(s)}
+                                className="mt-2 w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-white/20 hover:bg-white/30 h-8 text-xs font-semibold transition-colors"
+                              >
+                                <ArrowLeftRight size={13} /> Scambia
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <div className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-slate-500">
+        {SHIFT_TYPE_LIST.map(m => (
+          <span key={m.type} className="inline-flex items-center gap-1.5">
+            <span className={cn('size-2.5 rounded-full', m.dot)} /> {m.label}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5">
+          <CalendarDays size={14} /> Le colonne a righe rosse indicano i giorni di chiusura
+        </span>
+      </div>
+
+      {!canExchange && !isAdmin && (
+        <p className="text-[13px] text-slate-400">
+          Per proporre scambi di turno ai colleghi chiedi al responsabile di abilitare la visibilità dei turni del negozio.
+        </p>
+      )}
+
+      <ShiftExchangeModal myShift={exchangeShift} onClose={() => setExchangeShift(null)} allShifts={shifts} names={names} user={user} />
     </div>
   );
 }
 
-function UserIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-    </svg>
-  );
+function relativeDay(iso: string) {
+  const diff = differenceInCalendarDays(parseISO(iso), new Date());
+  if (diff === 0) return 'Oggi';
+  if (diff === 1) return 'Domani';
+  if (diff < 7) return capitalize(fmt(iso, 'EEEE'));
+  return capitalize(fmt(iso, 'd MMMM'));
 }

@@ -1,9 +1,12 @@
+export type Role = 'admin' | 'employee';
+export type ShiftType = 'morning' | 'afternoon' | 'full-day';
+
 export interface User {
   id: string;
   nome: string;
   cognome: string;
   email: string;
-  role: 'admin' | 'employee';
+  role: Role;
   shopIds: string[];
   isApproved: boolean;
   isBlocked: boolean;
@@ -21,7 +24,7 @@ export interface Shift {
   userId: string;
   shopId: string;
   date: string; // YYYY-MM-DD
-  shiftType: 'morning' | 'afternoon' | 'full-day';
+  shiftType: ShiftType;
 }
 
 export interface ShiftExchange {
@@ -48,4 +51,3 @@ export interface ExchangeLog {
   shopId: string;
   acceptedAt: string;
 }
-

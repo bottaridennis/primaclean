@@ -9,7 +9,15 @@ export default defineConfig(({mode}) => {
     base: './', // Serve assets with relative paths instead of absolute (vital for GitHub Pages subfolders)
     plugins: [react(), tailwindcss()],
     build: {
-      target: 'esnext'
+      target: 'esnext',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+            vendor: ['react', 'react-dom', 'motion/react', 'date-fns'],
+          },
+        },
+      },
     },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

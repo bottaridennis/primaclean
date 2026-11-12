@@ -1,175 +1,278 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'motion/react';
+import { Ban, Hourglass, Loader2, LogOut, UserRound } from 'lucide-react';
 import { auth, db } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
-import { User } from './types';
+import type { User } from './types';
+import { ToastProvider } from './components/ui/Toast';
+import { LogoMark } from './components/ui/Logo';
 import Login from './components/Login';
-import Layout from './components/Layout';
+import Layout, { navItemsFor, type TabId } from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import ShopManager from './components/ShopManager';
 import ShiftCreator from './components/ShiftCreator';
 import EmployeeSchedule from './components/EmployeeSchedule';
 import EmployeeManager from './components/EmployeeManager';
 import ExchangeLogs from './components/ExchangeLogs';
-import { motion, AnimatePresence } from 'motion/react';
-import { Clock, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import Profile from './components/Profile';
+import { firebaseErrorMessage } from './lib/utils';
+
+/** Tab corrente sincronizzata con l'hash dell'URL (#/turni ...) */
+function useHashTab(): [string, (t: string) => void] {
+  const read = () => window.location.hash.replace(/^#\/?/, '');
+  const [tab, setTab] = useState(read);
+  useEffect(() => {
+    const onHash = () => setTab(read());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const navigate = (t: string) => {
+    if (t !== read()) window.location.hash = `/${t}`;
+    window.scrollTo({ top: 0 });
+  };
+  return [tab, navigate];
+}
+
+type ProfileState =
+  | { status: 'loading' }
+  | { status: 'signed-out' }
+  | { status: 'missing'; firebaseUser: FirebaseUser }
+  | { status: 'ready'; user: User };
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  return (
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
+  );
+}
+
+function AppContent() {
+  const [state, setState] = useState<ProfileState>({ status: 'loading' });
+  const [rawTab, navigate] = useHashTab();
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
-    
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Listen to user document
-        unsubscribeUser = onSnapshot(
-          doc(db, 'users', firebaseUser.uid), 
-          (snapshot) => {
-            if (snapshot.exists()) {
-              const userData = { id: snapshot.id, ...snapshot.data() } as User;
-              setCurrentUser(userData);
-              
-              // Set default tab based on role
-              if (userData.role === 'admin') {
-                setActiveTab('dashboard');
-              } else {
-                setActiveTab('schedule');
-              }
-            } else {
-               // Handle case where user document doesn't exist yet (handled in login but safe to have fallback)
-               setCurrentUser(null);
-            }
-            setLoading(false);
-          },
-          (err) => {
-            console.error('App.tsx user snapshot error:', err);
-            setLoading(false);
-          }
-        );
-      } else {
-        if (unsubscribeUser) {
-          unsubscribeUser();
-          unsubscribeUser = null;
-        }
-        setCurrentUser(null);
-        setLoading(false);
+    let missingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanupUser = () => {
+      unsubscribeUser?.();
+      unsubscribeUser = null;
+      if (missingTimer) clearTimeout(missingTimer);
+      missingTimer = null;
+    };
+
+    const unsubscribeAuth = onAuthStateChanged(auth, firebaseUser => {
+      cleanupUser();
+      if (!firebaseUser) {
+        setState({ status: 'signed-out' });
+        return;
       }
+      setState({ status: 'loading' });
+      unsubscribeUser = onSnapshot(
+        doc(db, 'users', firebaseUser.uid),
+        snapshot => {
+          if (missingTimer) clearTimeout(missingTimer);
+          missingTimer = null;
+          if (snapshot.exists()) {
+            setState({ status: 'ready', user: { id: snapshot.id, shopIds: [], ...snapshot.data() } as User });
+          } else {
+            // Subito dopo la registrazione il documento può non esistere ancora:
+            // attendiamo un attimo prima di chiedere di completare il profilo.
+            missingTimer = setTimeout(() => setState({ status: 'missing', firebaseUser }), 2500);
+          }
+        },
+        err => {
+          console.error('Errore lettura profilo:', err);
+          setState({ status: 'missing', firebaseUser });
+        },
+      );
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeUser) {
-        unsubscribeUser();
-      }
+      cleanupUser();
     };
   }, []);
 
-  if (loading || (auth.currentUser && !currentUser)) {
+  if (state.status === 'loading') return <SplashScreen />;
+  if (state.status === 'signed-out') return <Login />;
+  if (state.status === 'missing') return <CompleteProfile firebaseUser={state.firebaseUser} />;
+
+  const user = state.user;
+  const isAdmin = user.role === 'admin';
+
+  if (user.isBlocked && !isAdmin) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <motion.div
-          animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
-          transition={{ repeat: Infinity, duration: 1.5 }}
-          className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white"
-        >
-          <Clock size={32} className="animate-spin-slow" />
-        </motion.div>
-      </div>
+      <StatusScreen
+        icon={<Ban size={30} />}
+        tone="danger"
+        title="Accesso sospeso"
+        message={
+          <>
+            Ciao <strong className="text-slate-800">{user.nome}</strong>, il tuo accesso è stato temporaneamente sospeso.
+            Per chiarimenti contatta il responsabile del negozio.
+          </>
+        }
+      />
     );
   }
 
-  if (!currentUser) {
-    return <Login />;
-  }
-
-  if (currentUser.isBlocked && currentUser.role !== 'admin') {
+  if (!user.isApproved && !isAdmin) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-white p-10 rounded-[3rem] shadow-xl max-w-sm w-full text-center border-2 border-red-100"
-        >
-          <div className="w-20 h-20 bg-red-50 rounded-full mx-auto mb-6 flex items-center justify-center">
-            <ShieldAlert className="text-red-500 w-10 h-10" />
-          </div>
-          <h1 className="text-2xl font-black text-slate-900 mb-2 italic">Accesso Bloccato</h1>
-          <p className="text-slate-500 mb-8 text-sm">
-            Gentile <span className="font-bold text-slate-900">{currentUser.nome}</span>, il tuo accesso al sistema è stato sospeso. Contatta l'amministrazione per chiarimenti.
-          </p>
-          <button
-            onClick={() => auth.signOut()}
-            className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all text-xs uppercase tracking-widest"
-          >
-            Esci dal sistema
-          </button>
-        </motion.div>
-      </div>
+      <StatusScreen
+        icon={<Hourglass size={30} />}
+        tone="warning"
+        title="Profilo in attesa di approvazione"
+        message={
+          <>
+            Grazie <strong className="text-slate-800">{user.nome}</strong>! La tua registrazione è stata ricevuta.
+            Un amministratore deve assegnarti al tuo negozio: questa pagina si aggiornerà da sola appena sarai approvato.
+          </>
+        }
+      />
     );
   }
 
-  if (!currentUser.isApproved && currentUser.role !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-white p-10 rounded-3xl shadow-xl max-w-sm w-full text-center border border-slate-100"
-        >
-          <div className="w-20 h-20 bg-amber-50 rounded-full mx-auto mb-6 flex items-center justify-center">
-            <ShieldAlert className="text-amber-500 w-10 h-10" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Profilo in Sospeso</h1>
-          <p className="text-slate-500 mb-8">
-            Ciao <span className="font-bold text-slate-900">{currentUser.nome}</span>, il tuo account è in attesa di approvazione da parte di un amministratore.
-          </p>
-          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">Stato</p>
-            <div className="flex items-center justify-center gap-2 text-amber-600 font-bold">
-              <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-              In Attesa di Revisione
-            </div>
-          </div>
-          <button
-            onClick={() => auth.signOut()}
-            className="mt-8 text-slate-400 text-sm font-medium hover:text-slate-600 underline"
-          >
-            Esci e riprova più tardi
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
+  const allowed = navItemsFor(user).map(i => i.id);
+  const fallback: TabId = isAdmin ? 'dashboard' : 'schedule';
+  const activeTab = (allowed.includes(rawTab as TabId) ? rawTab : fallback) as TabId;
 
   return (
-    <Layout user={currentUser} activeTab={activeTab} setActiveTab={setActiveTab}>
+    <Layout user={user} activeTab={activeTab} onNavigate={navigate}>
       <AnimatePresence mode="wait">
         <motion.div
           key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.2 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18 }}
         >
-          {currentUser.role === 'admin' ? (
-            <>
-              {activeTab === 'dashboard' && <AdminDashboard />}
-              {activeTab === 'employees' && <EmployeeManager />}
-              {activeTab === 'shops' && <ShopManager />}
-              {activeTab === 'shifts' && <ShiftCreator />}
-              {activeTab === 'logs' && <ExchangeLogs />}
-              {activeTab === 'schedule' && <EmployeeSchedule user={currentUser} />}
-            </>
-          ) : (
-            <>
-              {activeTab === 'schedule' && <EmployeeSchedule user={currentUser} />}
-            </>
-          )}
+          {activeTab === 'dashboard' && <AdminDashboard user={user} onNavigate={navigate} />}
+          {activeTab === 'planner' && <ShiftCreator />}
+          {activeTab === 'schedule' && <EmployeeSchedule user={user} />}
+          {activeTab === 'staff' && <EmployeeManager currentUser={user} />}
+          {activeTab === 'shops' && <ShopManager />}
+          {activeTab === 'exchanges' && <ExchangeLogs />}
+          {activeTab === 'profile' && <Profile user={user} />}
         </motion.div>
       </AnimatePresence>
     </Layout>
+  );
+}
+
+function SplashScreen() {
+  return (
+    <div className="min-h-dvh flex flex-col items-center justify-center gap-5 bg-linen">
+      <motion.div animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}>
+        <LogoMark className="size-16 drop-shadow-lg" />
+      </motion.div>
+      <p className="text-sm font-medium text-slate-400">Caricamento in corso…</p>
+    </div>
+  );
+}
+
+function StatusScreen({
+  icon,
+  title,
+  message,
+  tone,
+}: {
+  icon: ReactNode;
+  title: string;
+  message: ReactNode;
+  tone: 'danger' | 'warning';
+}) {
+  return (
+    <div className="min-h-dvh flex items-center justify-center bg-linen p-5">
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="card max-w-md w-full p-8 text-center">
+        <div
+          className={
+            'size-16 rounded-3xl mx-auto mb-5 flex items-center justify-center ' +
+            (tone === 'danger' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600')
+          }
+        >
+          {icon}
+        </div>
+        <h1 className="text-xl font-extrabold text-brand-950">{title}</h1>
+        <p className="mt-2 text-[15px] text-slate-500 leading-relaxed">{message}</p>
+        {tone === 'warning' && (
+          <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
+            <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
+            In revisione
+          </div>
+        )}
+        <button onClick={() => auth.signOut()} className="btn btn-secondary w-full mt-8">
+          <LogOut size={18} /> Esci
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
+/** Mostrato quando l'utente è autenticato ma non ha un profilo nel database */
+function CompleteProfile({ firebaseUser }: { firebaseUser: FirebaseUser }) {
+  const [first, ...rest] = (firebaseUser.displayName ?? '').split(' ');
+  const [nome, setNome] = useState(first ?? '');
+  const [cognome, setCognome] = useState(rest.join(' '));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nome.trim() || !cognome.trim()) {
+      setError('Inserisci nome e cognome.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await setDoc(doc(db, 'users', firebaseUser.uid), {
+        nome: nome.trim(),
+        cognome: cognome.trim(),
+        email: firebaseUser.email,
+        role: 'employee',
+        shopIds: [],
+        isApproved: false,
+        isBlocked: false,
+        canSeeColleagues: false,
+      });
+    } catch (err) {
+      setError(firebaseErrorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-dvh flex items-center justify-center bg-linen p-5">
+      <form onSubmit={submit} className="card max-w-md w-full p-8">
+        <div className="size-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
+          <UserRound size={26} />
+        </div>
+        <h1 className="text-xl font-extrabold text-brand-950">Completa il tuo profilo</h1>
+        <p className="mt-1 text-[15px] text-slate-500">
+          Non abbiamo trovato un profilo collegato a <strong className="text-slate-700">{firebaseUser.email}</strong>.
+          Inserisci i tuoi dati per inviare la richiesta di accesso.
+        </p>
+        <div className="grid grid-cols-2 gap-3 mt-6">
+          <div>
+            <label className="field-label" htmlFor="cp-nome">Nome</label>
+            <input id="cp-nome" className="input" value={nome} onChange={e => setNome(e.target.value)} autoComplete="given-name" />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="cp-cognome">Cognome</label>
+            <input id="cp-cognome" className="input" value={cognome} onChange={e => setCognome(e.target.value)} autoComplete="family-name" />
+          </div>
+        </div>
+        {error && <p className="mt-4 text-sm font-medium text-rose-600">{error}</p>}
+        <button type="submit" className="btn btn-primary btn-lg w-full mt-6" disabled={busy}>
+          {busy && <Loader2 size={18} className="animate-spin" />} Invia richiesta
+        </button>
+        <button type="button" onClick={() => auth.signOut()} className="btn btn-ghost w-full mt-2">
+          Esci
+        </button>
+      </form>
+    </div>
   );
 }

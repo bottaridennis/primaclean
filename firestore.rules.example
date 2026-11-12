@@ -1,0 +1,53 @@
+rules_version = '2';
+// Regole d'esempio compatibili con Prima Clean.
+// Copiale in firestore.rules (escluso da git) e adattale prima del deploy.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isAdmin() { return signedIn() && me().role == 'admin'; }
+    function isActive() { return signedIn() && me().isApproved == true && me().isBlocked != true; }
+    function inMyShop(shopId) { return shopId in me().shopIds; }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid)
+                  || (isActive() && resource.data.shopIds.hasAny(me().shopIds));
+      // Auto-registrazione: solo come dipendente non approvato
+      allow create: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.role == 'employee'
+                    && request.resource.data.isApproved == false
+                    && request.resource.data.isBlocked == false;
+      allow update, delete: if isAdmin();
+    }
+
+    match /shops/{shopId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if isAdmin()
+                  || (isActive() && inMyShop(resource.data.shopId)
+                      && (me().canSeeColleagues == true || resource.data.userId == request.auth.uid));
+      allow create, delete: if isAdmin();
+      // Lo scambio cambia solo l'assegnatario di un turno dello stesso negozio
+      allow update: if isAdmin()
+                    || (isActive() && me().canSeeColleagues == true && inMyShop(resource.data.shopId)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userId']));
+    }
+
+    match /shiftExchanges/{id} {
+      allow read: if isAdmin() || (signedIn() && (resource.data.requesterId == request.auth.uid
+                                               || resource.data.targetUserId == request.auth.uid));
+      allow create: if isActive() && request.resource.data.requesterId == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow update: if isAdmin() || (signedIn() && (resource.data.requesterId == request.auth.uid
+                                                 || resource.data.targetUserId == request.auth.uid));
+    }
+
+    match /exchangeLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isActive();
+    }
+  }
+}
