@@ -64,7 +64,7 @@ export function PageHeader({
           {description && <p className="mt-1 text-[15px] text-slate-500">{description}</p>}
         </div>
         {(actions || help) && (
-          <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
+          <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end print:hidden">
             {help && <HelpToggle help={help} />}
             {actions}
           </div>

@@ -119,3 +119,25 @@
     transparent 8px 16px
   );
 }
+
+/* Stampa: pagina pulita su sfondo bianco, colori dei turni mantenuti */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .card {
+    box-shadow: none !important;
+  }
+  table {
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+}

@@ -6,6 +6,8 @@ import {
   ArrowRight,
   CalendarDays,
   CalendarRange,
+  Bell,
+  Clock,
   Check,
   ChevronDown,
   KeyRound,
@@ -119,6 +121,18 @@ function adminSteps(): TourStep[] {
       ),
     },
     {
+      tab: 'hours',
+      icon: Clock,
+      title: '6. Ore, esportazioni e registro',
+      body: (
+        <>
+          In <strong>Ore e presenze</strong> vedi le ore di ognuno con l'avviso se supera il contratto, e puoi esportare in Excel o
+          stampare. Nel <strong>Registro attività</strong> trovi chi ha cambiato cosa. La <strong>campanella</strong> in alto ti
+          avvisa delle novità.
+        </>
+      ),
+    },
+    {
       icon: PartyPopper,
       title: 'Tutto pronto!',
       body: (
@@ -204,13 +218,24 @@ function employeeSteps(user: User): TourStep[] {
       ),
     },
     {
+      tab: 'schedule',
+      icon: Bell,
+      title: 'Le notifiche',
+      body: (
+        <>
+          Quando ti assegnano o tolgono un turno, o un collega ti scrive per uno scambio, la <strong>campanella</strong> in alto
+          mostra un numero rosso. Toccala per leggere, e premi «Attiva notifiche» per ricevere gli avvisi sul telefono.
+        </>
+      ),
+    },
+    {
       tab: 'profile',
       icon: KeyRound,
       title: 'Il tuo profilo',
       body: (
         <>
-          Nel <strong>Profilo</strong> vedi i negozi a cui sei assegnato, quanti turni hai fatto nel mese e puoi cambiare la
-          password.
+          Nel <strong>Profilo</strong> vedi i negozi a cui sei assegnato, le ore del mese, puoi cambiare la password e{' '}
+          <strong>installare l'app sul telefono</strong>.
         </>
       ),
     },
@@ -240,7 +265,16 @@ const ADMIN_FAQ: Faq[] = [
   { q: 'Come faccio a non rifare ogni settimana da zero?', a: 'Nel Planner premi «Copia settimana precedente»: i turni della settimana prima vengono ricopiati, saltando chiusure e conflitti.' },
   { q: 'Come segno un giorno di chiusura?', a: 'Negozi e chiusure → nel riquadro del negozio scegli la data e premi Aggiungi. «Festività nazionali» aggiunge tutte le feste italiane.' },
   { q: 'Cosa significa «Vede colleghi»?', a: 'Il dipendente può vedere i turni di tutti i colleghi del negozio e proporre scambi. Se è disattivato vede solo i propri turni. Si cambia da Personale → Modifica.' },
+  { q: 'Come controllo le ore lavorate?', a: 'Ore e presenze → scegli il mese. Le settimane oltre il contratto sono in arancione. Da lì puoi esportare in Excel o stampare.' },
+  { q: 'Chi ha cambiato questo turno?', a: 'Registro attività: ogni modifica a turni, negozi e personale è annotata con autore, data e ora.' },
+  { q: 'Come stampo i turni da appendere in negozio?', a: 'Planner turni → scegli negozio e settimana → «Stampa settimana». Dalla finestra di stampa puoi anche salvare in PDF.' },
   { q: 'Un dipendente non lavora più con noi', a: 'Personale → «Sospendi» blocca subito l\'accesso mantenendo lo storico; «Elimina» cancella il profilo e i suoi turni futuri.' },
+];
+
+const COMMON_FAQ: Faq[] = [
+  { q: 'Come metto l\'app sul telefono?', a: 'Vai nel Profilo → «App sul telefono» e segui le istruzioni. Su iPhone: Safari → Condividi → «Aggiungi alla schermata Home».' },
+  { q: 'Come ricevo gli avvisi?', a: 'Tocca la campanella in alto: lì trovi tutte le notifiche. Premi «Attiva notifiche» per ricevere gli avvisi anche quando l\'app è in background.' },
+  { q: 'Funziona senza internet?', a: 'Sì, puoi consultare gli ultimi turni caricati. Le modifiche fatte offline vengono inviate appena torna la connessione.' },
 ];
 
 const EMPLOYEE_FAQ: Faq[] = [
@@ -425,7 +459,7 @@ function TourCard({ steps, step, onStep, onFinish }: { steps: TourStep[]; step: 
 
 function HelpCenter({ open, onClose, user, onStartTour }: { open: boolean; onClose: () => void; user: User; onStartTour: () => void }) {
   const toast = useToast();
-  const faq = user.role === 'admin' ? ADMIN_FAQ : EMPLOYEE_FAQ;
+  const faq = [...(user.role === 'admin' ? ADMIN_FAQ : EMPLOYEE_FAQ), ...COMMON_FAQ];
   const [openIdx, setOpenIdx] = useState<number | null>(0);
 
   const resetPageHelp = () => {

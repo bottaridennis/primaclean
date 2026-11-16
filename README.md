@@ -12,11 +12,22 @@ React 19 + Vite + Tailwind CSS 4, con Firebase (Auth + Firestore) come backend.
 - **Personale**: ricerca e filtri, approvazione/rifiuto delle registrazioni, assegnazione negozi, visibilità turni colleghi, sospensione, promozione ad admin, eliminazione (con pulizia dei turni futuri).
 - **Negozi e chiusure**: creazione, rinomina, eliminazione, giorni di chiusura e inserimento rapido delle festività nazionali italiane.
 - **Storico scambi** con filtri per nome e negozio.
+- **Ore e presenze**: ore lavorate per persona e per settimana (dagli orari delle fasce di ogni negozio), avviso oltre le ore da contratto, esportazione CSV per Excel e stampa/PDF.
+- **Registro attività**: chi ha modificato turni, negozi e personale, e quando.
+- **Stampa settimana** dal Planner, da appendere in negozio o salvare in PDF.
 
 **Dipendenti**
 - Prossimo turno in evidenza e agenda settimanale.
 - Proposta di scambio turno ai colleghi (solo turni futuri e compatibili), accettazione/rifiuto con verifica che i turni non siano cambiati nel frattempo.
-- Profilo con negozi assegnati, riepilogo turni del mese e cambio password.
+- Profilo con negozi assegnati, turni e ore del mese, cambio password.
+
+**Per tutti**
+- **Notifiche** in-app (campanella) per turni nuovi o annullati e scambi; notifiche di sistema mentre l'app è aperta o in background.
+- **App installabile** (PWA) e consultabile **offline** grazie a service worker e cache locale di Firestore.
+- Tutorial iniziale, guida con domande frequenti e spiegazioni in ogni pagina.
+
+> Le notifiche push con l'app completamente chiusa richiedono una Cloud Function che invii messaggi FCM
+> alla creazione di un documento in `notifications` (non inclusa).
 
 ## Avvio in locale
 

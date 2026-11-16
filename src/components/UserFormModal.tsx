@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { Check, Loader2, Store } from 'lucide-react';
 import { db } from '../lib/firebase';
+import { logActivity, notify } from '../lib/activity';
 import { cn, fullName } from '../lib/utils';
 import type { Shop, User } from '../types';
 import { Modal } from './ui/Modal';
@@ -24,6 +25,7 @@ export default function UserFormModal({ user, shops, mode, onClose }: Props) {
   const [cognome, setCognome] = useState('');
   const [shopIds, setShopIds] = useState<string[]>([]);
   const [canSeeColleagues, setCanSeeColleagues] = useState(false);
+  const [weeklyHours, setWeeklyHours] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -32,6 +34,7 @@ export default function UserFormModal({ user, shops, mode, onClose }: Props) {
     setCognome(user.cognome ?? '');
     setShopIds((user.shopIds ?? []).filter(id => shops.some(s => s.id === id)));
     setCanSeeColleagues(!!user.canSeeColleagues);
+    setWeeklyHours(user.weeklyHours ? String(user.weeklyHours) : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, mode]);
 
@@ -39,7 +42,9 @@ export default function UserFormModal({ user, shops, mode, onClose }: Props) {
 
   const isEmployee = user?.role !== 'admin';
   const needsShop = isEmployee && shopIds.length === 0;
-  const canSave = !!nome.trim() && !!cognome.trim() && !needsShop && !busy;
+  const hoursNum = weeklyHours.trim() === '' ? null : Number(weeklyHours.replace(',', '.'));
+  const hoursInvalid = hoursNum !== null && (!Number.isFinite(hoursNum) || hoursNum <= 0 || hoursNum > 80);
+  const canSave = !!nome.trim() && !!cognome.trim() && !needsShop && !hoursInvalid && !busy;
 
   const save = async () => {
     if (!user || !canSave) return;
@@ -50,8 +55,17 @@ export default function UserFormModal({ user, shops, mode, onClose }: Props) {
         cognome: cognome.trim(),
         shopIds,
         canSeeColleagues,
+        weeklyHours: hoursNum,
         ...(mode === 'approve' ? { isApproved: true } : {}),
       });
+      const shopNames = shops.filter(s => shopIds.includes(s.id)).map(s => s.name).join(', ');
+      logActivity({
+        kind: 'user',
+        action: mode === 'approve' ? 'Dipendente approvato' : 'Scheda dipendente modificata',
+        details: `${nome.trim()} ${cognome.trim()} · ${shopNames || 'nessun negozio'}${weeklyHours ? ` · ${weeklyHours} h/sett.` : ''}`,
+        targetUserId: user.id,
+      });
+      if (mode === 'approve') notify(user.id, 'Profilo approvato', `Benvenuto! Sei stato assegnato a: ${shopNames}.`, 'schedule');
       toast.success(mode === 'approve' ? `${nome} è stato approvato.` : 'Modifiche salvate.');
       onClose();
     } catch (err) {
@@ -146,6 +160,25 @@ export default function UserFormModal({ user, shops, mode, onClose }: Props) {
               <p className="mt-2 text-[13px] font-medium text-amber-700">Seleziona almeno un negozio.</p>
             )}
           </fieldset>
+
+          <div>
+            <label className="field-label flex items-center gap-1" htmlFor="uf-hours">
+              Ore settimanali da contratto
+              <InfoTip align="left">Facoltativo. Serve alla pagina «Ore e presenze» per avvisarti quando una persona supera le ore previste. Esempio: 40 per un tempo pieno, 24 per un part-time.</InfoTip>
+            </label>
+            <div className="relative sm:w-48">
+              <input
+                id="uf-hours"
+                inputMode="decimal"
+                className={cn('input pr-20', hoursInvalid && 'border-rose-300 focus:border-rose-400 focus:ring-rose-100')}
+                placeholder="es. 40"
+                value={weeklyHours}
+                onChange={e => setWeeklyHours(e.target.value)}
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">ore/sett.</span>
+            </div>
+            {hoursInvalid && <p className="mt-1.5 text-[13px] font-medium text-rose-600">Inserisci un numero di ore tra 1 e 80.</p>}
+          </div>
 
           <Switch
             checked={canSeeColleagues}

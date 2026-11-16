@@ -4,7 +4,7 @@ import { addWeeks, differenceInCalendarDays, isSameDay, parseISO } from 'date-fn
 import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Shirt, Store, Users } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useApprovedUsers, useLiveQuery, useShopMembers, useShops } from '../lib/hooks';
-import { SHIFT_TYPE_LIST, shiftMeta, sortShifts } from '../lib/shifts';
+import { SHIFT_TYPE_LIST, shiftMeta, sortShifts, timeRange } from '../lib/shifts';
 import { capitalize, cn, fmt, fullName, isShopClosed, toISODate, todayISO, weekDays, weekLabel } from '../lib/utils';
 import type { Shift, User } from '../types';
 import { EmptyState, PageHeader, PillTabs, Segmented, Spinner } from './ui/Primitives';
@@ -118,9 +118,9 @@ export default function EmployeeSchedule({ user }: Props) {
               {nextShift ? (
                 <>
                   <p className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                    {relativeDay(nextShift.date)} · {shiftMeta(nextShift.shiftType).label}
+                    {relativeDay(nextShift.date)} · {timeRange(shop, nextShift.shiftType)}
                   </p>
-                  <p className="text-sm text-brand-100/80">{capitalize(fmt(nextShift.date, 'EEEE d MMMM'))}</p>
+                  <p className="text-sm text-brand-100/80">{capitalize(fmt(nextShift.date, 'EEEE d MMMM'))} · {shiftMeta(nextShift.shiftType).label}</p>
                 </>
               ) : (
                 <p className="text-xl font-extrabold">Nessun turno in programma</p>
@@ -217,6 +217,7 @@ export default function EmployeeSchedule({ user }: Props) {
                             <p className="text-sm font-bold flex items-center gap-1.5">
                               <meta.icon size={14} /> {meta.label}
                             </p>
+                            <p className={cn('text-[12px] tabular-nums', mine ? 'text-white/80' : 'opacity-75')}>{timeRange(shop, s.shiftType)}</p>
                             {exchangeable && (
                               <button
                                 onClick={() => setExchangeShift(s)}

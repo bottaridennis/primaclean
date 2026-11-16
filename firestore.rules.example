@@ -17,9 +17,9 @@ service cloud.firestore {
     function isAdmin() {
       return signedIn() && me().role == 'admin';
     }
-    // Dipendente approvato e non sospeso
+    // Amministratore, oppure dipendente approvato e non sospeso
     function isActive() {
-      return signedIn() && me().isApproved == true && me().isBlocked != true;
+      return signedIn() && (me().role == 'admin' || (me().isApproved == true && me().isBlocked != true));
     }
     function inMyShop(shopId) {
       return shopId in me().shopIds;
@@ -88,6 +88,26 @@ service cloud.firestore {
             && request.resource.data.status in ['accepted', 'rejected']);
 
       allow delete: if isAdmin();
+    }
+
+    // ---------- Notifiche in-app ----------
+    match /notifications/{notificationId} {
+      // Ognuno legge e gestisce solo le proprie
+      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      // Le crea chi compie l'azione (es. l'admin che assegna un turno), firmandole con il proprio id
+      allow create: if isActive()
+        && request.resource.data.fromId == request.auth.uid
+        && request.resource.data.read == false;
+    }
+
+    // ---------- Registro attività ----------
+    match /activityLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isActive() && request.resource.data.actorId == request.auth.uid;
+      // Il registro non si modifica né si cancella
+      allow update, delete: if false;
     }
 
     // ---------- Storico scambi ----------

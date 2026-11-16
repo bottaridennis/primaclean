@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { db } from '../lib/firebase';
+import { logActivity } from '../lib/activity';
 import { useApprovedUsers, useLiveQuery, usePendingUsers, useShops } from '../lib/hooks';
 import { capitalize, cn, fmt, fullName, isShopClosed, toISODate } from '../lib/utils';
 import { shiftMeta, sortShifts } from '../lib/shifts';
@@ -83,6 +84,7 @@ export default function AdminDashboard({ user, onNavigate }: Props) {
     if (!rejecting) return;
     try {
       await deleteDoc(doc(db, 'users', rejecting.id));
+      logActivity({ kind: 'user', action: 'Richiesta rifiutata', details: fullName(rejecting), targetUserId: rejecting.id });
       toast.success('Richiesta rifiutata.');
     } catch (err) {
       toast.error(err);

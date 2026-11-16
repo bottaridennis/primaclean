@@ -1,5 +1,5 @@
 import { Sunrise, Sunset, Sun, type LucideIcon } from 'lucide-react';
-import type { Shift, ShiftType } from '../types';
+import type { Shift, ShiftHours, ShiftType, Shop } from '../types';
 
 export interface ShiftMeta {
   type: ShiftType;
@@ -69,3 +69,37 @@ export function shiftConflict(existing: Pick<Shift, 'shiftType'>[], type: ShiftT
   if (existing.some(s => s.shiftType === 'full-day')) return 'Il dipendente lavora già l\'intera giornata.';
   return null;
 }
+
+/** Orari predefiniti, modificabili per ogni negozio in «Negozi e chiusure» */
+export const DEFAULT_SHIFT_HOURS: Record<ShiftType, ShiftHours> = {
+  morning: { start: '08:30', end: '13:00' },
+  afternoon: { start: '15:00', end: '19:30' },
+  'full-day': { start: '08:30', end: '19:30', breakMinutes: 120 },
+};
+
+export function hoursFor(shop: Pick<Shop, 'shiftHours'> | undefined, type: ShiftType | string): ShiftHours {
+  const t = (type as ShiftType) in DEFAULT_SHIFT_HOURS ? (type as ShiftType) : 'full-day';
+  return { ...DEFAULT_SHIFT_HOURS[t], ...(shop?.shiftHours?.[t] ?? {}) };
+}
+
+const toMin = (hhmm: string) => {
+  const [h, m] = (hhmm || '0:0').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+/** Durata in ore (decimali) di un turno, tolta la pausa */
+export function shiftDuration(shop: Pick<Shop, 'shiftHours'> | undefined, type: ShiftType | string): number {
+  const h = hoursFor(shop, type);
+  let mins = toMin(h.end) - toMin(h.start);
+  if (mins < 0) mins += 24 * 60;
+  return Math.max(0, mins - (h.breakMinutes ?? 0)) / 60;
+}
+
+export const timeRange = (shop: Pick<Shop, 'shiftHours'> | undefined, type: ShiftType | string) => {
+  const h = hoursFor(shop, type);
+  return `${h.start}–${h.end}`;
+};
+
+/** 7.5 → "7,5 h"; 8 → "8 h" */
+export const formatHours = (n: number) =>
+  `${Number.isInteger(n) ? n : n.toLocaleString('it-IT', { maximumFractionDigits: 2 })} h`;

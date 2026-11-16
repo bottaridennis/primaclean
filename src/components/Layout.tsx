@@ -10,6 +10,8 @@ import {
   LogOut,
   Menu,
   ChevronRight,
+  Clock,
+  History,
   type LucideIcon,
 } from 'lucide-react';
 import { auth } from '../lib/firebase';
@@ -20,8 +22,10 @@ import { Logo, LogoMark } from './ui/Logo';
 import { Avatar } from './ui/Avatar';
 import { Modal } from './ui/Modal';
 import { GuideButton } from './onboarding/Guide';
+import { NotificationBell } from './Notifications';
+import { InstallBanner, OfflineBanner } from './InstallApp';
 
-export type TabId = 'dashboard' | 'planner' | 'schedule' | 'staff' | 'shops' | 'exchanges' | 'profile';
+export type TabId = 'dashboard' | 'planner' | 'schedule' | 'staff' | 'shops' | 'hours' | 'exchanges' | 'activity' | 'profile';
 
 interface NavItem {
   id: TabId;
@@ -40,7 +44,9 @@ export function navItemsFor(user: User): NavItem[] {
       { id: 'schedule', label: 'Agenda negozi', shortLabel: 'Agenda', icon: CalendarDays, primary: true },
       { id: 'staff', label: 'Personale', shortLabel: 'Staff', icon: Users, primary: true },
       { id: 'shops', label: 'Negozi e chiusure', shortLabel: 'Negozi', icon: Store },
+      { id: 'hours', label: 'Ore e presenze', shortLabel: 'Ore', icon: Clock },
       { id: 'exchanges', label: 'Storico scambi', shortLabel: 'Scambi', icon: ArrowLeftRight },
+      { id: 'activity', label: 'Registro attività', shortLabel: 'Registro', icon: History },
       { id: 'profile', label: 'Il mio profilo', shortLabel: 'Profilo', icon: UserRound },
     ];
   }
@@ -74,9 +80,10 @@ export default function Layout({ user, children, activeTab, onNavigate }: Props)
   return (
     <div className="min-h-dvh bg-linen">
       {/* Sidebar desktop */}
-      <aside className="hidden md:flex flex-col w-[272px] h-dvh fixed inset-y-0 left-0 z-40 bg-white border-r border-slate-200/70">
-        <div className="px-6 h-20 flex items-center border-b border-slate-100">
-          <Logo />
+      <aside className="print:hidden hidden md:flex flex-col w-[272px] h-dvh fixed inset-y-0 left-0 z-40 bg-white border-r border-slate-200/70">
+        <div className="px-6 h-20 flex items-center gap-2 border-b border-slate-100">
+          <Logo className="flex-1 min-w-0" />
+          <NotificationBell user={user} onNavigate={go} className="-mr-2" />
         </div>
 
         <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-1" aria-label="Navigazione principale">
@@ -120,7 +127,7 @@ export default function Layout({ user, children, activeTab, onNavigate }: Props)
       </aside>
 
       {/* Header mobile */}
-      <header className="md:hidden sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/70">
+      <header className="print:hidden md:hidden sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/70">
         <div className="flex items-center justify-between h-16 px-4">
           <div className="flex items-center gap-2.5">
             <LogoMark className="size-9" />
@@ -129,6 +136,7 @@ export default function Layout({ user, children, activeTab, onNavigate }: Props)
             </p>
           </div>
           <div className="flex items-center gap-1">
+          <NotificationBell user={user} onNavigate={go} />
           <GuideButton variant="icon" />
           <button onClick={() => go('profile')} className="rounded-full p-1" aria-label="Il mio profilo">
             <Avatar user={user} size="sm" className={activeTab === 'profile' ? 'ring-2 ring-brand-500 ring-offset-2' : ''} />
@@ -137,13 +145,17 @@ export default function Layout({ user, children, activeTab, onNavigate }: Props)
         </div>
       </header>
 
-      <main className="md:ml-[272px] px-4 py-6 md:px-10 md:py-10 pb-32 md:pb-12">
-        <div className="max-w-6xl mx-auto">{children}</div>
+      <main className="md:ml-[272px] px-4 py-6 md:px-10 md:py-10 pb-32 md:pb-12 print:m-0 print:p-0">
+        <div className="max-w-6xl mx-auto">
+          <OfflineBanner />
+          <InstallBanner />
+          {children}
+        </div>
       </main>
 
       {/* Barra di navigazione mobile */}
       <nav
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/70 pb-safe"
+        className="print:hidden md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/70 pb-safe"
         aria-label="Navigazione principale"
       >
         <div className="flex items-stretch justify-around px-2 pt-1.5">

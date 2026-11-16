@@ -15,7 +15,7 @@ export function HowItWorks({ open, onClose, steps, intro }: { open: boolean; onC
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
           exit={{ opacity: 0, height: 0 }}
-          className="overflow-hidden"
+          className="overflow-hidden print:hidden"
           aria-label="Come funziona questa pagina"
         >
           <div className="relative mb-6 rounded-3xl border border-brand-200 bg-brand-50/70 p-5 pr-12">

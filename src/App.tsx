@@ -16,6 +16,9 @@ import EmployeeSchedule from './components/EmployeeSchedule';
 import EmployeeManager from './components/EmployeeManager';
 import ExchangeLogs from './components/ExchangeLogs';
 import Profile from './components/Profile';
+import HoursReport from './components/HoursReport';
+import ActivityLogPage from './components/ActivityLogPage';
+import { setActor } from './lib/activity';
 import { GuideProvider } from './components/onboarding/Guide';
 import { firebaseErrorMessage } from './lib/utils';
 
@@ -67,6 +70,7 @@ function AppContent() {
     const unsubscribeAuth = onAuthStateChanged(auth, firebaseUser => {
       cleanupUser();
       if (!firebaseUser) {
+        setActor(null);
         setState({ status: 'signed-out' });
         return;
       }
@@ -77,7 +81,9 @@ function AppContent() {
           if (missingTimer) clearTimeout(missingTimer);
           missingTimer = null;
           if (snapshot.exists()) {
-            setState({ status: 'ready', user: { id: snapshot.id, shopIds: [], ...snapshot.data() } as User });
+            const u = { id: snapshot.id, shopIds: [], ...snapshot.data() } as User;
+            setActor(u);
+            setState({ status: 'ready', user: u });
           } else {
             // Subito dopo la registrazione il documento può non esistere ancora:
             // attendiamo un attimo prima di chiedere di completare il profilo.
@@ -157,6 +163,8 @@ function AppContent() {
           {activeTab === 'staff' && <EmployeeManager currentUser={user} />}
           {activeTab === 'shops' && <ShopManager />}
           {activeTab === 'exchanges' && <ExchangeLogs />}
+          {activeTab === 'hours' && <HoursReport />}
+          {activeTab === 'activity' && <ActivityLogPage />}
           {activeTab === 'profile' && <Profile user={user} />}
         </motion.div>
       </AnimatePresence>
