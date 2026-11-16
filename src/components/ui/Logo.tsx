@@ -27,12 +27,12 @@ export function Logo({ className, subtitle = true, light = false }: { className?
   return (
     <div className={cn('flex items-center gap-3', className)}>
       <LogoMark className="size-10 shrink-0" />
-      <div className="leading-tight">
+      <div className="leading-tight min-w-0">
         <p className={cn('text-lg font-extrabold tracking-tight', light ? 'text-white' : 'text-brand-950')}>
           Prima<span className={light ? 'text-brand-200' : 'text-brand-600'}>Clean</span>
         </p>
         {subtitle && (
-          <p className={cn('text-xs font-medium', light ? 'text-brand-100/80' : 'text-slate-500')}>Lavasecco · Gestione turni</p>
+          <p className={cn('text-xs font-medium truncate', light ? 'text-brand-100/80' : 'text-slate-500')}>Lavasecco · Gestione turni</p>
         )}
       </div>
     </div>

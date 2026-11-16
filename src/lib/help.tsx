@@ -64,6 +64,26 @@ export const HELP = {
       { title: 'Non serve fare nulla', text: 'Gli scambi si registrano da soli quando un dipendente ne accetta uno.' },
     ],
   },
+  hours: {
+    id: 'hours',
+    intro: 'Qui vedi quante ore ha lavorato ogni persona nel mese, calcolate dai turni assegnati.',
+    steps: [
+      { title: 'Scegli mese e negozio', text: 'Usa le frecce per cambiare mese e il menu per vedere un solo negozio.' },
+      { title: 'Leggi la tabella', text: 'Per ogni persona: turni, ore del mese e ore di ogni settimana. In fondo i totali.' },
+      { title: 'Controlla gli avvisi', text: 'Le celle arancioni indicano le settimane oltre le ore da contratto (impostabili in Personale → Modifica).' },
+      { title: 'Esporta', text: '«Esporta ore» e «Esporta turni» scaricano un file che si apre con Excel. «Stampa / PDF» crea una versione da stampare o salvare.' },
+      { title: 'Orari corretti', text: 'Le ore dipendono dagli orari delle fasce: controllali in «Negozi e chiusure» → Orari dei turni.' },
+    ],
+  },
+  activity: {
+    id: 'activity',
+    intro: 'Il diario di tutto ciò che succede nell\'app: chi ha fatto cosa e quando.',
+    steps: [
+      { title: 'Cosa viene registrato', text: 'Turni assegnati o tolti, settimane copiate, negozi e chiusure, approvazioni e modifiche del personale, scambi accettati.' },
+      { title: 'Filtra', text: 'Scegli una categoria o scrivi un nome per trovare subito una modifica.' },
+      { title: 'Solo lettura', text: 'Il registro non si può modificare: serve per controllare e risolvere dubbi.' },
+    ],
+  },
 } satisfies Record<string, PageHelp>;
 
 /** Porta l'utente a un'altra sezione dell'app */

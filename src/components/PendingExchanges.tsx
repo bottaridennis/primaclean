@@ -3,6 +3,7 @@ import { collection, doc, getDoc, getDocs, query, updateDoc, where, writeBatch }
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowLeftRight, Check, Clock, Loader2, X } from 'lucide-react';
 import { db } from '../lib/firebase';
+import { logActivity, notify } from '../lib/activity';
 import { useLiveQuery } from '../lib/hooks';
 import { shiftMeta } from '../lib/shifts';
 import { capitalize, cn, fmt, todayISO } from '../lib/utils';
@@ -95,6 +96,13 @@ export default function PendingExchanges({ user, names: knownNames, shopNames }:
     setBusyId(e.id);
     try {
       await updateDoc(doc(db, 'shiftExchanges', e.id), { status });
+      const iAmRequester = e.requesterId === user.id;
+      notify(
+        iAmRequester ? e.targetUserId : e.requesterId,
+        iAmRequester ? 'Proposta di scambio annullata' : 'Scambio rifiutato',
+        iAmRequester ? `${user.nome} ha ritirato la proposta di scambio.` : `${user.nome} ha rifiutato la tua proposta di scambio.`,
+        'schedule',
+      );
       toast.success(msg);
     } catch (err) {
       toast.error(err);
@@ -139,6 +147,13 @@ export default function PendingExchanges({ user, names: knownNames, shopNames }:
         acceptedAt: new Date().toISOString(),
       });
       await batch.commit();
+      logActivity({
+        kind: 'exchange',
+        action: 'Scambio accettato',
+        details: `${names[e.requesterId] ?? 'Collega'} (${fmt(req.date, 'd MMM')}) ⇄ ${names[e.targetUserId] ?? `${user.nome} ${user.cognome}`} (${fmt(tgt.date, 'd MMM')})`,
+        shopId: e.shopId,
+      });
+      notify(e.requesterId, 'Scambio accettato', `${user.nome} ha accettato: ora lavori ${fmt(tgt.date, 'EEEE d MMMM')} al posto del ${fmt(req.date, 'd MMMM')}.`, 'schedule');
       toast.success('Scambio accettato: la tua agenda è stata aggiornata.');
     } catch (err) {
       toast.error(err);

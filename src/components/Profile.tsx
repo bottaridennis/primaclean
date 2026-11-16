@@ -5,12 +5,13 @@ import { endOfMonth, startOfMonth } from 'date-fns';
 import { Eye, EyeOff, KeyRound, Loader2, LogOut, Mail, ShieldCheck, Store } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useLiveQuery, useShops } from '../lib/hooks';
-import { SHIFT_TYPE_LIST } from '../lib/shifts';
+import { SHIFT_TYPE_LIST, formatHours, shiftDuration } from '../lib/shifts';
 import { capitalize, cn, fmt, fullName, toISODate } from '../lib/utils';
 import type { Shift, User } from '../types';
 import { Avatar } from './ui/Avatar';
 import { PageHeader } from './ui/Primitives';
 import { useToast } from './ui/Toast';
+import { InstallCard } from './InstallApp';
 
 /** Turni del mese corrente per un negozio (rispettando i permessi del dipendente) */
 function useMyShopShifts(user: User, shopId: string) {
@@ -109,8 +110,20 @@ export default function Profile({ user }: { user: User }) {
         <section className="card p-5">
           <h3 className="font-bold text-slate-900">{capitalize(fmt(new Date(), 'MMMM yyyy'))}</h3>
           <p className="text-sm text-slate-500 mb-4">Riepilogo dei tuoi turni nel mese</p>
-          <p className="text-4xl font-extrabold text-brand-950">{monthShifts.length}</p>
-          <p className="text-sm text-slate-500 mb-4">turni totali</p>
+          <div className="flex gap-8 mb-4">
+            <div>
+              <p className="text-4xl font-extrabold text-brand-950">{monthShifts.length}</p>
+              <p className="text-sm text-slate-500">turni</p>
+            </div>
+            <div>
+              <p className="text-4xl font-extrabold text-brand-950">
+                {formatHours(Math.round(monthShifts.reduce((t, s) => t + shiftDuration(shops.find(x => x.id === s.shopId), s.shiftType), 0) * 100) / 100)}
+              </p>
+              <p className="text-sm text-slate-500">
+                ore previste{user.weeklyHours ? ` · contratto ${user.weeklyHours} h/sett.` : ''}
+              </p>
+            </div>
+          </div>
           <div className="space-y-2">
             {SHIFT_TYPE_LIST.map(m => {
               const n = monthShifts.filter(s => s.shiftType === m.type).length;
@@ -130,6 +143,11 @@ export default function Profile({ user }: { user: User }) {
           </div>
         </section>
       </div>
+
+      <section className="card p-5 mt-4 space-y-3">
+        <h3 className="font-bold text-slate-900">App sul telefono</h3>
+        <InstallCard />
+      </section>
 
       <section className="card p-5 mt-4 space-y-3">
         <h3 className="font-bold text-slate-900">Sicurezza</h3>

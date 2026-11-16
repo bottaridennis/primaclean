@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { addDoc, collection, deleteDoc, doc, getDocs, query, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { CalendarOff, Check, ChevronDown, Flag, Loader2, Pencil, Plus, Store, Trash2, Users, X } from 'lucide-react';
+import { CalendarOff, Check, ChevronDown, Clock, Flag, Loader2, Pencil, Plus, Store, Trash2, Users, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { db } from '../lib/firebase';
+import { logActivity } from '../lib/activity';
 import { useApprovedUsers, useShops } from '../lib/hooks';
 import { capitalize, cn, fmt, italianHolidays, todayISO } from '../lib/utils';
-import type { Shop } from '../types';
+import type { ShiftHours, ShiftType, Shop } from '../types';
+import { SHIFT_TYPE_LIST, formatHours, hoursFor, shiftDuration, timeRange } from '../lib/shifts';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { EmptyState, PageHeader, Spinner } from './ui/Primitives';
 import { useToast } from './ui/Toast';
@@ -38,6 +40,7 @@ export default function ShopManager() {
     try {
       await addDoc(collection(db, 'shops'), { name, closedHolidays: [] });
       setNewShopName('');
+      logActivity({ kind: 'shop', action: 'Negozio creato', details: name });
       toast.success(`Negozio «${name}» creato.`);
     } catch (err) {
       toast.error(err);
@@ -62,6 +65,7 @@ export default function ShopManager() {
         await batch.commit();
       }
       await deleteDoc(doc(db, 'shops', toDelete.id));
+      logActivity({ kind: 'shop', action: 'Negozio eliminato', details: `${toDelete.name} · ${shiftsSnap.size} turni rimossi` });
       toast.success(`Negozio «${toDelete.name}» eliminato.`);
     } catch (err) {
       toast.error(err);
@@ -138,7 +142,12 @@ function ShopCard({ shop, staffCount, onDelete }: { shop: Shop; staffCount: numb
 
   const saveHolidays = async (list: string[], msg?: string) => {
     try {
-      await updateDoc(doc(db, 'shops', shop.id), { closedHolidays: Array.from(new Set(list)).sort() });
+      const next = Array.from(new Set(list)).sort();
+      await updateDoc(doc(db, 'shops', shop.id), { closedHolidays: next });
+      const added = next.filter(d => !holidays.includes(d));
+      const removed = holidays.filter(d => !next.includes(d));
+      if (added.length) logActivity({ kind: 'shop', action: 'Chiusure aggiunte', details: added.map(d => fmt(d, 'd MMM yyyy')).join(', '), shopId: shop.id });
+      if (removed.length) logActivity({ kind: 'shop', action: 'Chiusure rimosse', details: removed.map(d => fmt(d, 'd MMM yyyy')).join(', '), shopId: shop.id });
       if (msg) toast.success(msg);
     } catch (err) {
       toast.error(err);
@@ -154,6 +163,7 @@ function ShopCard({ shop, staffCount, onDelete }: { shop: Shop; staffCount: numb
     }
     try {
       await updateDoc(doc(db, 'shops', shop.id), { name: n });
+      logActivity({ kind: 'shop', action: 'Negozio rinominato', details: `${shop.name} → ${n}`, shopId: shop.id });
       toast.success('Nome aggiornato.');
     } catch (err) {
       setName(shop.name);
@@ -284,7 +294,101 @@ function ShopCard({ shop, staffCount, onDelete }: { shop: Shop; staffCount: numb
           </div>
         )}
       </div>
+
+      <ShiftHoursEditor shop={shop} />
     </motion.article>
+  );
+}
+
+/** Orari delle fasce del negozio: servono per mostrare gli orari e per il conteggio ore */
+function ShiftHoursEditor({ shop }: { shop: Shop }) {
+  const toast = useToast();
+  const initial = () =>
+    Object.fromEntries(SHIFT_TYPE_LIST.map(m => [m.type, hoursFor(shop, m.type)])) as Record<ShiftType, ShiftHours>;
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(initial);
+  const [busy, setBusy] = useState(false);
+
+  const set = (t: ShiftType, k: keyof ShiftHours, v: string) =>
+    setDraft(d => ({ ...d, [t]: { ...d[t], [k]: k === 'breakMinutes' ? Math.max(0, Number(v) || 0) : v } }));
+
+  const invalid = SHIFT_TYPE_LIST.some(m => !draft[m.type].start || !draft[m.type].end || shiftDuration({ shiftHours: draft }, m.type) <= 0);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await updateDoc(doc(db, 'shops', shop.id), { shiftHours: draft });
+      logActivity({
+        kind: 'shop',
+        action: 'Orari dei turni modificati',
+        details: SHIFT_TYPE_LIST.map(m => `${m.label} ${draft[m.type].start}–${draft[m.type].end}`).join(' · '),
+        shopId: shop.id,
+      });
+      toast.success('Orari salvati.');
+      setOpen(false);
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-100 p-5">
+      <button
+        className="w-full flex items-center justify-between gap-2 text-left"
+        onClick={() => {
+          setDraft(initial());
+          setOpen(o => !o);
+        }}
+        aria-expanded={open}
+      >
+        <span className="text-sm font-bold text-slate-700 flex items-center gap-2">
+          <Clock size={16} className="text-brand-600" /> Orari dei turni
+        </span>
+        <span className="text-[13px] text-slate-500 flex items-center gap-1">
+          {!open && SHIFT_TYPE_LIST.map(m => `${m.short} ${timeRange(shop, m.type)}`).join(' · ')}
+          <ChevronDown size={16} className={cn('transition-transform', open && 'rotate-180')} />
+        </span>
+      </button>
+      {open && (
+        <div className="mt-4 space-y-3">
+          <p className="text-[13px] text-slate-500">
+            Servono a mostrare l'orario esatto ai dipendenti e a calcolare le ore lavorate. La pausa (in minuti) non viene conteggiata.
+          </p>
+          {SHIFT_TYPE_LIST.map(m => (
+            <div key={m.type} className="flex flex-wrap items-end gap-2 rounded-2xl bg-slate-50 p-3">
+              <span className={cn('chip border w-full sm:w-36 sm:self-center', m.soft)}>
+                <m.icon size={13} /> {m.label}
+              </span>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Inizio
+                <input type="time" className="input h-10 w-32 px-2 text-sm" value={draft[m.type].start} onChange={e => set(m.type, 'start', e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Fine
+                <input type="time" className="input h-10 w-32 px-2 text-sm" value={draft[m.type].end} onChange={e => set(m.type, 'end', e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Pausa (min)
+                <input type="number" min={0} step={15} className="input h-10 w-24 px-2 text-sm" value={draft[m.type].breakMinutes ?? 0} onChange={e => set(m.type, 'breakMinutes', e.target.value)} />
+              </label>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={busy || invalid}>
+              {busy && <Loader2 size={15} className="animate-spin" />} Salva orari
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>
+              Annulla
+            </button>
+            <span className="text-[13px] text-slate-500">
+              {invalid ? 'Controlla gli orari: la fine deve essere dopo l\'inizio.' : SHIFT_TYPE_LIST.map(x => `${x.short} = ${formatHours(shiftDuration({ shiftHours: draft }, x.type))}`).join(' · ')}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

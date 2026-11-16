@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { addDoc, collection, deleteDoc, doc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { addDays, addWeeks, isSameDay, parseISO } from 'date-fns';
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Copy, Loader2, Plus, Store, Trash2, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Copy, Loader2, Printer, Plus, Store, Trash2, Users } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useApprovedUsers, useLiveQuery, useShops } from '../lib/hooks';
-import { SHIFT_TYPE_LIST, shiftConflict, shiftMeta, sortShifts } from '../lib/shifts';
+import { SHIFT_TYPE_LIST, shiftConflict, shiftMeta, sortShifts, timeRange } from '../lib/shifts';
+import { logActivity, notify } from '../lib/activity';
 import { capitalize, cn, fmt, fullName, isShopClosed, toISODate, weekDays, weekLabel } from '../lib/utils';
-import type { Shift, ShiftType, User } from '../types';
+import type { Shift, ShiftType, Shop, User } from '../types';
 import { Avatar } from './ui/Avatar';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { Modal } from './ui/Modal';
@@ -63,14 +64,23 @@ export default function ShiftCreator() {
     if (conflict) return toast.error(conflict);
     try {
       await addDoc(collection(db, 'shifts'), { userId, shopId, date, shiftType: type });
+      const when = `${capitalize(fmt(date, 'EEEE d MMMM'))}, ${shiftMeta(type).label.toLowerCase()} (${timeRange(shop, type)})`;
+      logActivity({ kind: 'shift', action: 'Turno assegnato', details: `${fullName(staffById[userId])} · ${when}`, shopId, targetUserId: userId });
+      notify(userId, 'Nuovo turno', `${when} · ${shop?.name ?? ''}`, 'schedule');
     } catch (err) {
       toast.error(err);
     }
   };
 
   const removeShift = async (id: string) => {
+    const s = weekShifts.find(x => x.id === id);
     try {
       await deleteDoc(doc(db, 'shifts', id));
+      if (s) {
+        const when = `${capitalize(fmt(s.date, 'EEEE d MMMM'))}, ${shiftMeta(s.shiftType).label.toLowerCase()}`;
+        logActivity({ kind: 'shift', action: 'Turno rimosso', details: `${fullName(staffById[s.userId])} · ${when}`, shopId: s.shopId, targetUserId: s.userId });
+        notify(s.userId, 'Turno annullato', `${when} · ${shop?.name ?? ''}`, 'schedule');
+      }
     } catch (err) {
       toast.error(err);
     }
@@ -108,6 +118,10 @@ export default function ShiftCreator() {
     }
     try {
       await batch.commit();
+      logActivity({ kind: 'shift', action: 'Settimana copiata', details: `${added} turni copiati su ${weekLabel(days)}`, shopId });
+      const perUser = new Map<string, number>();
+      planned.slice(weekShifts.length).forEach(p => perUser.set(p.userId, (perUser.get(p.userId) ?? 0) + 1));
+      perUser.forEach((n, uid) => notify(uid, 'Nuovi turni', `${n} ${n === 1 ? 'turno' : 'turni'} nella settimana ${weekLabel(days)} · ${shop?.name ?? ''}`, 'schedule'));
       toast.success(`Copiati ${added} turni${skipped ? ` (${skipped} saltati per conflitti o chiusure)` : ''}.`);
     } catch (err) {
       toast.error(err);
@@ -142,14 +156,28 @@ export default function ShiftCreator() {
         description="Tocca una casella per assegnare o rimuovere un turno. Le modifiche sono visibili subito al personale."
         help={HELP.planner}
         actions={
-          <button className="btn btn-secondary" onClick={() => setCopyOpen(true)}>
-            <Copy size={17} /> Copia settimana precedente
-          </button>
+          <>
+            <button className="btn btn-secondary" onClick={() => setCopyOpen(true)}>
+              <Copy size={17} /> Copia settimana precedente
+            </button>
+            <button className="btn btn-secondary" onClick={() => window.print()} title="Stampa la settimana o salvala in PDF">
+              <Printer size={17} /> Stampa settimana
+            </button>
+          </>
         }
       />
 
+      <div className="hidden print:block mb-4">
+        <p className="text-xl font-bold">
+          Turni {shop?.name} · {weekLabel(days)}
+        </p>
+        <p className="text-sm">
+          {SHIFT_TYPE_LIST.map(m => `${m.label} ${timeRange(shop, m.type)}`).join(' · ')}
+        </p>
+      </div>
+
       <PillTabs
-        className="mb-4"
+        className="mb-4 print:hidden"
         ariaLabel="Negozio"
         value={shopId}
         onChange={setShopId}
@@ -158,7 +186,7 @@ export default function ShiftCreator() {
 
       <div className="card overflow-hidden">
         {/* Navigazione settimana */}
-        <div className="flex items-center gap-2 p-3 sm:p-4 border-b border-slate-100">
+        <div className="flex items-center gap-2 p-3 sm:p-4 border-b border-slate-100 print:hidden">
           <button className="btn-icon" onClick={() => setAnchor(a => addWeeks(a, -1))} aria-label="Settimana precedente">
             <ChevronLeft size={20} />
           </button>
@@ -184,9 +212,9 @@ export default function ShiftCreator() {
             action={<button className="btn btn-primary" onClick={() => goTo('staff')}>Vai a Personale</button>}
           />
         ) : (
-          <div className="overflow-x-auto relative">
+          <div className="overflow-x-auto relative print:overflow-visible">
             {shiftsLoading && <div className="absolute inset-x-0 top-0 h-0.5 bg-brand-400 animate-pulse" />}
-            <table className="w-full border-collapse text-sm min-w-[860px]">
+            <table className="w-full border-collapse text-sm min-w-[860px] print:min-w-0">
               <thead>
                 <tr>
                   <th className="sticky left-0 z-10 bg-white w-44 min-w-44 text-left px-4 py-3 text-xs font-semibold text-slate-400 border-b border-slate-100">
@@ -298,7 +326,7 @@ export default function ShiftCreator() {
       </div>
 
       {/* Legenda */}
-      <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4 text-[13px] text-slate-500">
+      <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4 text-[13px] text-slate-500 print:hidden">
         {SHIFT_TYPE_LIST.map(m => (
           <span key={m.type} className="inline-flex items-center gap-1.5">
             <span className={cn('size-2.5 rounded-full', m.dot)} /> {m.label}
@@ -325,6 +353,7 @@ export default function ShiftCreator() {
       >
         {cell && (
           <CellEditor
+            shop={shop}
             shifts={cellShifts}
             shopId={shopId}
             closed={isShopClosed(shop, cell.date)}
@@ -354,6 +383,7 @@ export default function ShiftCreator() {
 }
 
 function CellEditor({
+  shop,
   shifts,
   shopId,
   closed,
@@ -361,6 +391,7 @@ function CellEditor({
   onAdd,
   onRemove,
 }: {
+  shop: Shop | undefined;
   shifts: Shift[];
   shopId: string;
   closed: boolean;
@@ -424,7 +455,9 @@ function CellEditor({
                 {busy === meta.type ? <Loader2 size={18} className="animate-spin" /> : <meta.icon size={18} />}
               </span>
               <span className="flex-1">
-                <span className="block font-semibold text-slate-800">{meta.label}</span>
+                <span className="block font-semibold text-slate-800">
+                  {meta.label} <span className="font-normal text-slate-500 tabular-nums whitespace-nowrap">· {timeRange(shop, meta.type)}</span>
+                </span>
                 {!existing && conflict && <span className="block text-xs text-slate-500">{conflict}</span>}
               </span>
               {existing ? (

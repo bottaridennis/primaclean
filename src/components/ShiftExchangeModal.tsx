@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { addDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { ArrowLeftRight, Check, Loader2, Send } from 'lucide-react';
 import { db } from '../lib/firebase';
+import { notify } from '../lib/activity';
 import { shiftConflict, shiftMeta } from '../lib/shifts';
 import { capitalize, cn, fmt, todayISO } from '../lib/utils';
 import type { Shift, ShiftExchange, User } from '../types';
@@ -76,6 +77,7 @@ export default function ShiftExchangeModal({ myShift, onClose, allShifts, names,
         status: 'pending',
         createdAt: new Date().toISOString(),
       } satisfies Omit<ShiftExchange, 'id'>);
+      notify(selected.userId, 'Nuova proposta di scambio', `${user.nome} ti propone il suo turno di ${fmt(myShift.date, 'EEEE d MMMM')} in cambio del tuo di ${fmt(selected.date, 'EEEE d MMMM')}.`, 'schedule');
       toast.success(`Proposta inviata a ${names[selected.userId]?.split(' ')[0] ?? 'il collega'}.`);
       close();
     } catch (err) {

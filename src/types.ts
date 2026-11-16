@@ -11,12 +11,23 @@ export interface User {
   isApproved: boolean;
   isBlocked: boolean;
   canSeeColleagues: boolean;
+  /** Ore settimanali da contratto (opzionale) */
+  weeklyHours?: number;
 }
 
 export interface Shop {
   id: string;
   name: string;
   closedHolidays: string[]; // ISO dates YYYY-MM-DD
+  /** Orari delle fasce per questo negozio (se assenti si usano quelli predefiniti) */
+  shiftHours?: Partial<Record<ShiftType, ShiftHours>>;
+}
+
+export interface ShiftHours {
+  start: string; // HH:mm
+  end: string; // HH:mm
+  /** Minuti di pausa non retribuita */
+  breakMinutes?: number;
 }
 
 export interface Shift {
@@ -50,4 +61,30 @@ export interface ExchangeLog {
   targetShiftType: string;
   shopId: string;
   acceptedAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  fromId: string;
+  fromName: string;
+  title: string;
+  body: string;
+  /** Sezione dell'app da aprire al click */
+  link?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  at: string;
+  actorId: string;
+  actorName: string;
+  /** Categoria dell'azione */
+  kind: 'shift' | 'shop' | 'user' | 'exchange';
+  action: string;
+  details?: string;
+  shopId?: string;
+  targetUserId?: string;
 }

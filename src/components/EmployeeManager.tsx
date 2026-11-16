@@ -3,6 +3,7 @@ import { collection, deleteDoc, doc, getDocs, query, updateDoc, where, writeBatc
 import { Ban, CheckCircle2, Eye, EyeOff, Pencil, Search, ShieldCheck, ShieldOff, Store, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { db } from '../lib/firebase';
+import { logActivity, notify } from '../lib/activity';
 import { useApprovedUsers, usePendingUsers, useShops } from '../lib/hooks';
 import { cn, fullName, todayISO } from '../lib/utils';
 import type { User } from '../types';
@@ -48,12 +49,16 @@ export default function EmployeeManager({ currentUser }: { currentUser: User }) 
     try {
       if (kind === 'promote') {
         await updateDoc(doc(db, 'users', user.id), { role: 'admin' });
+        logActivity({ kind: 'user', action: 'Promosso ad amministratore', details: fullName(user), targetUserId: user.id });
+        notify(user.id, 'Sei amministratore', 'Ora puoi gestire personale, negozi e turni.', 'dashboard');
         toast.success(`${user.nome} ora è amministratore.`);
       } else if (kind === 'demote') {
         await updateDoc(doc(db, 'users', user.id), { role: 'employee' });
+        logActivity({ kind: 'user', action: 'Permessi admin revocati', details: fullName(user), targetUserId: user.id });
         toast.success(`${user.nome} ora è un dipendente.`);
       } else if (kind === 'block') {
         await updateDoc(doc(db, 'users', user.id), { isBlocked: !user.isBlocked });
+        logActivity({ kind: 'user', action: user.isBlocked ? 'Accesso riattivato' : 'Accesso sospeso', details: fullName(user), targetUserId: user.id });
         toast.success(user.isBlocked ? `Accesso di ${user.nome} riattivato.` : `Accesso di ${user.nome} sospeso.`);
       } else if (kind === 'delete') {
         // Elimina anche i turni futuri del dipendente, così non restano "buchi" fantasma in agenda
@@ -65,6 +70,7 @@ export default function EmployeeManager({ currentUser }: { currentUser: User }) 
           await batch.commit();
         }
         await deleteDoc(doc(db, 'users', user.id));
+        logActivity({ kind: 'user', action: user.isApproved ? 'Profilo eliminato' : 'Richiesta rifiutata', details: `${fullName(user)}${future.length ? ` · ${future.length} turni futuri rimossi` : ''}`, targetUserId: user.id });
         toast.success(`Profilo di ${user.nome} eliminato${future.length ? ` insieme a ${future.length} turni futuri` : ''}.`);
       }
     } catch (err) {
