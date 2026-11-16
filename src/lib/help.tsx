@@ -35,14 +35,15 @@ export const HELP = {
     ],
   },
   staff: {
-    id: 'staff',
-    intro: 'L\'elenco di chi usa l\'app. Le persone appena registrate aspettano la tua approvazione.',
+    id: 'staff-v2',
+    intro: 'Tutto sul personale in un colpo d\'occhio: quanto lavora ognuno, dove e quando. Le persone appena registrate aspettano la tua approvazione.',
     steps: [
-      { title: 'Approva i nuovi', text: 'Apri il filtro «In attesa», premi «Approva» e scegli almeno un negozio. Prima di questo il dipendente non vede nulla.' },
-      { title: 'Modifica', text: '«Modifica» cambia nome, negozi assegnati e la possibilità di vedere i turni dei colleghi.' },
-      { title: 'Sospendi', text: 'Blocca subito l\'accesso (es. fine contratto) senza cancellare niente. Si può riattivare in ogni momento.' },
-      { title: 'Elimina', text: 'Cancella definitivamente il profilo e i suoi turni futuri. Usalo solo se sei sicuro.' },
-      { title: 'Rendi admin', text: 'Dà a quella persona gli stessi poteri che hai tu. Da usare solo per i responsabili.' },
+      { title: 'Scegli la settimana', text: 'Le frecce in alto cambiano la settimana di riferimento: ore e caselle colorate si aggiornano.' },
+      { title: 'Leggi la riga', text: 'Le 7 caselle sono i giorni (M = Mattina, P = Pomeriggio, G = Giornata intera). La barra confronta le ore della settimana con quelle da contratto.' },
+      { title: 'Trova chi è libero', text: 'Il filtro «Con ore libere» mostra chi può ancora lavorare questa settimana: utile per coprire un turno.' },
+      { title: 'Controlla gli eccessi', text: '«Oltre contratto» mostra in rosso chi ha più ore del previsto.' },
+      { title: 'Apri la scheda', text: 'Tocca una persona: vedi turni con orari, prossimi turni, ore del mese, attività recenti e i pulsanti per modificare, sospendere o eliminare.' },
+      { title: 'Approva i nuovi', text: 'Nel filtro «In attesa» premi «Approva» e scegli il negozio. Prima di questo il dipendente non vede nulla.' },
     ],
   },
   shops: {
