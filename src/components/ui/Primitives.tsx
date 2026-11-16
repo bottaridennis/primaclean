@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, type LucideIcon } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { Lightbulb, Loader2, type LucideIcon } from 'lucide-react';
+import { cn, safeStorage } from '../../lib/utils';
+import { HowItWorks, type HelpStep } from './HowItWorks';
 
 export function Spinner({ label, className }: { label?: string; className?: string }) {
   return (
@@ -37,24 +38,87 @@ export function EmptyState({
   );
 }
 
+export interface PageHelp {
+  /** Identificativo della pagina (serve a ricordare se l'utente ha chiuso la spiegazione) */
+  id: string;
+  intro?: ReactNode;
+  steps: HelpStep[];
+}
+
 export function PageHeader({
   title,
   description,
   actions,
+  help,
 }: {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
+  help?: PageHelp;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
-      <div className="min-w-0">
-        <h1 className="text-2xl md:text-[28px] font-extrabold tracking-tight text-brand-950">{title}</h1>
-        {description && <p className="mt-1 text-[15px] text-slate-500">{description}</p>}
+    <>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-[28px] font-extrabold tracking-tight text-brand-950">{title}</h1>
+          {description && <p className="mt-1 text-[15px] text-slate-500">{description}</p>}
+        </div>
+        {(actions || help) && (
+          <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
+            {help && <HelpToggle help={help} />}
+            {actions}
+          </div>
+        )}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-    </div>
+      {help && <HelpPanel help={help} />}
+    </>
   );
+}
+
+/* Pulsante e pannello condividono lo stato tramite un piccolo evento sul window */
+const EVT = 'pc-help-toggle';
+
+function HelpToggle({ help }: { help: PageHelp }) {
+  const h = useSyncedHelp(help.id);
+  return (
+    <button className={cn('btn btn-secondary', h.open && 'bg-brand-50 border-brand-200 text-brand-800')} onClick={() => (h.open ? h.hide() : h.show())} aria-expanded={h.open}>
+      <Lightbulb size={17} /> Come funziona
+    </button>
+  );
+}
+
+function HelpPanel({ help }: { help: PageHelp }) {
+  const h = useSyncedHelp(help.id);
+  return <HowItWorks open={h.open} onClose={h.hide} steps={help.steps} intro={help.intro} />;
+}
+
+function useSyncedHelp(id: string) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const on = (e: Event) => {
+      if ((e as CustomEvent).detail === id) force(n => n + 1);
+    };
+    const reset = () => force(n => n + 1);
+    window.addEventListener(EVT, on);
+    window.addEventListener('pc-help-reset', reset);
+    return () => {
+      window.removeEventListener(EVT, on);
+      window.removeEventListener('pc-help-reset', reset);
+    };
+  }, [id]);
+  const storageKey = `pc-help-hidden-${id}`;
+  const broadcast = () => window.dispatchEvent(new CustomEvent(EVT, { detail: id }));
+  return {
+    open: safeStorage.get(storageKey) !== '1',
+    show: () => {
+      safeStorage.remove(storageKey);
+      broadcast();
+    },
+    hide: () => {
+      safeStorage.set(storageKey, '1');
+      broadcast();
+    },
+  };
 }
 
 export function Switch({

@@ -8,6 +8,7 @@ import { shiftMeta } from '../lib/shifts';
 import { capitalize, cn, fmt } from '../lib/utils';
 import type { ExchangeLog } from '../types';
 import { EmptyState, PageHeader, Spinner } from './ui/Primitives';
+import { HELP } from '../lib/help';
 
 const PAGE = 50;
 
@@ -31,7 +32,7 @@ export default function ExchangeLogs() {
 
   return (
     <div>
-      <PageHeader title="Storico scambi" description="Tutti gli scambi di turno accettati tra colleghi, dal più recente." />
+      <PageHeader title="Storico scambi" description="Tutti gli scambi di turno accettati tra colleghi, dal più recente." help={HELP.exchanges} />
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <div className="relative flex-1">

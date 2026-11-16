@@ -12,6 +12,8 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { Modal } from './ui/Modal';
 import { EmptyState, PageHeader, PillTabs, Spinner } from './ui/Primitives';
 import { useToast } from './ui/Toast';
+import { HELP, goTo } from '../lib/help';
+import { InfoTip } from './ui/InfoTip';
 
 interface CellRef {
   user: User | { id: string; nome: string; cognome: string };
@@ -119,7 +121,12 @@ export default function ShiftCreator() {
       <div>
         <PageHeader title="Planner turni" />
         <div className="card">
-          <EmptyState icon={Store} title="Nessun negozio" description="Crea almeno un negozio per iniziare a pianificare i turni." />
+          <EmptyState
+            icon={Store}
+            title="Prima crea un negozio"
+            description="I turni si assegnano sempre in un negozio. Crea il primo punto vendita e torna qui."
+            action={<button className="btn btn-primary" onClick={() => goTo('shops')}>Vai a Negozi e chiusure</button>}
+          />
         </div>
       </div>
     );
@@ -133,6 +140,7 @@ export default function ShiftCreator() {
       <PageHeader
         title="Planner turni"
         description="Tocca una casella per assegnare o rimuovere un turno. Le modifiche sono visibili subito al personale."
+        help={HELP.planner}
         actions={
           <button className="btn btn-secondary" onClick={() => setCopyOpen(true)}>
             <Copy size={17} /> Copia settimana precedente
@@ -171,8 +179,9 @@ export default function ShiftCreator() {
         {rows.length === 0 ? (
           <EmptyState
             icon={Users}
-            title="Nessun dipendente assegnato"
-            description="Assegna del personale a questo negozio dalla sezione «Personale» per poter creare i turni."
+            title="Nessun dipendente in questo negozio"
+            description="Per mettere qualcuno in turno qui, prima assegnalo a questo negozio: Personale → Modifica → spunta il negozio."
+            action={<button className="btn btn-primary" onClick={() => goTo('staff')}>Vai a Personale</button>}
           />
         ) : (
           <div className="overflow-x-auto relative">
@@ -297,6 +306,12 @@ export default function ShiftCreator() {
         ))}
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2.5 rounded-full bg-slate-300" /> Turno in altra sede
+          <InfoTip side="top">La persona lavora già in un altro negozio quel giorno. Il riquadro grigio indica la fascia (M = Mattina, P = Pomeriggio, G = Giornata intera) e il negozio. Non potrai assegnarle un turno sovrapposto.</InfoTip>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="rounded-md bg-amber-100 text-amber-800 px-1 text-[11px] font-bold">M 2</span>
+          <span className="rounded-md bg-violet-100 text-violet-800 px-1 text-[11px] font-bold">P 1</span> Copertura
+          <InfoTip side="top" align="right">Nell'ultima riga della tabella: quante persone ci sono al mattino (M) e al pomeriggio (P) quel giorno. Chi fa la giornata intera conta in entrambe. «Scoperto» significa che nel negozio non c'è nessuno.</InfoTip>
         </span>
       </div>
 
@@ -368,6 +383,10 @@ function CellEditor({
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-slate-500">
+        Tocca una fascia per <strong className="text-slate-700">assegnarla</strong>. Tocca di nuovo una fascia già colorata per{' '}
+        <strong className="text-slate-700">toglierla</strong>. Le modifiche si salvano da sole.
+      </p>
       {closed && (
         <p className="flex items-center gap-2 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
           <CalendarDays size={17} /> Il negozio è chiuso in questa data.

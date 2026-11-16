@@ -26,6 +26,9 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { EmptyState, Spinner } from './ui/Primitives';
 import { useToast } from './ui/Toast';
 import UserFormModal from './UserFormModal';
+import { InfoTip } from './ui/InfoTip';
+import { safeStorage } from '../lib/utils';
+import { Circle } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -117,6 +120,13 @@ export default function AdminDashboard({ user, onNavigate }: Props) {
         </div>
       </section>
 
+      <GettingStarted
+        hasShop={shops.length > 0}
+        hasStaff={staff.some(u => u.role === 'employee' && (u.shopIds ?? []).length > 0)}
+        hasShifts={weekShifts.length > 0}
+        onNavigate={onNavigate}
+      />
+
       {/* KPI */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <Kpi icon={Users} label="Personale attivo" value={activeStaff.length} onClick={() => onNavigate('staff')} />
@@ -197,7 +207,10 @@ export default function AdminDashboard({ user, onNavigate }: Props) {
             <section className="card p-5">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="font-bold text-slate-900">Prossimi 7 giorni</h2>
+                  <h2 className="font-bold text-slate-900 flex items-center gap-1">
+                    Prossimi 7 giorni
+                    <InfoTip align="left">Elenca i giorni in cui un negozio è aperto ma nessuno è in turno. Le domeniche e i giorni di chiusura non vengono contati. Premi «Risolvi» per andare al Planner.</InfoTip>
+                  </h2>
                   <p className="text-sm text-slate-500">Giorni di apertura senza personale assegnato</p>
                 </div>
                 {gaps.length > 0 && (
@@ -332,5 +345,80 @@ function Kpi({
       <p className="mt-4 text-3xl font-extrabold tracking-tight text-brand-950">{value}</p>
       <p className="text-sm font-medium text-slate-500">{label}</p>
     </button>
+  );
+}
+
+/** Checklist dei primi passi: sparisce quando è tutto fatto o quando l'admin la chiude */
+function GettingStarted({
+  hasShop,
+  hasStaff,
+  hasShifts,
+  onNavigate,
+}: {
+  hasShop: boolean;
+  hasStaff: boolean;
+  hasShifts: boolean;
+  onNavigate: (tab: TabId) => void;
+}) {
+  const [hidden, setHidden] = useState(() => safeStorage.get('pc-getting-started-hidden') === '1');
+  const items = [
+    { done: hasShop, title: 'Crea il primo negozio', text: 'Aggiungi i tuoi punti vendita e le chiusure.', tab: 'shops' as TabId, cta: 'Crea negozio' },
+    { done: hasStaff, title: 'Approva e assegna il personale', text: 'Fai registrare i dipendenti, poi approvali e scegli il loro negozio.', tab: 'staff' as TabId, cta: 'Vai al personale' },
+    { done: hasShifts, title: 'Pianifica la prima settimana', text: 'Assegna i turni dal Planner con un tocco per casella.', tab: 'planner' as TabId, cta: 'Apri il Planner' },
+  ];
+  const doneCount = items.filter(i => i.done).length;
+  if (hidden || doneCount === items.length) return null;
+  const next = items.find(i => !i.done)!;
+
+  return (
+    <section className="card p-5 md:p-6 border-brand-200">
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <h2 className="font-bold text-slate-900">Primi passi</h2>
+          <p className="text-sm text-slate-500">
+            Completati {doneCount} su {items.length}. Segui l'ordine: ogni passo serve per quello successivo.
+          </p>
+        </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            safeStorage.set('pc-getting-started-hidden', '1');
+            setHidden(true);
+          }}
+        >
+          Nascondi
+        </button>
+      </div>
+      <div className="h-2 rounded-full bg-slate-100 mt-4 overflow-hidden">
+        <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${(doneCount / items.length) * 100}%` }} />
+      </div>
+      <ol className="mt-5 grid md:grid-cols-3 gap-3">
+        {items.map((it, i) => {
+          const isNext = it === next;
+          return (
+            <li
+              key={it.title}
+              className={cn(
+                'rounded-2xl border p-4 flex flex-col gap-2',
+                it.done ? 'border-emerald-200 bg-emerald-50/60' : isNext ? 'border-brand-300 bg-brand-50/60 ring-1 ring-brand-300' : 'border-slate-200',
+              )}
+            >
+              <p className="flex items-center gap-2 font-semibold text-slate-800">
+                {it.done ? <CheckCircle2 size={20} className="text-emerald-600" /> : <Circle size={20} className="text-slate-300" />}
+                <span className={cn(it.done && 'line-through text-slate-500')}>
+                  {i + 1}. {it.title}
+                </span>
+              </p>
+              <p className="text-sm text-slate-500 flex-1">{it.text}</p>
+              {!it.done && (
+                <button className={cn('btn btn-sm self-start', isNext ? 'btn-primary' : 'btn-secondary')} onClick={() => onNavigate(it.tab)}>
+                  {it.cta} <ArrowRight size={15} />
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }

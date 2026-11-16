@@ -236,6 +236,13 @@ export default function PendingExchanges({ user, names: knownNames, shopNames }:
                   )}
                 </div>
               </div>
+              {valid && (
+                <p className="px-4 sm:px-5 pb-4 -mt-1 text-[13px] text-slate-500">
+                  {isRequester
+                    ? 'Il turno resta tuo finché il collega non accetta. Puoi annullare la proposta in qualsiasi momento.'
+                    : 'Se accetti, i due turni si scambiano subito e la tua agenda si aggiorna. Se rifiuti non cambia nulla.'}
+                </p>
+              )}
             </motion.article>
           );
         })}

@@ -19,6 +19,7 @@ import type { User } from '../types';
 import { Logo, LogoMark } from './ui/Logo';
 import { Avatar } from './ui/Avatar';
 import { Modal } from './ui/Modal';
+import { GuideButton } from './onboarding/Guide';
 
 export type TabId = 'dashboard' | 'planner' | 'schedule' | 'staff' | 'shops' | 'exchanges' | 'profile';
 
@@ -94,6 +95,7 @@ export default function Layout({ user, children, activeTab, onNavigate }: Props)
         </nav>
 
         <div className="p-4 border-t border-slate-100 space-y-1">
+          <GuideButton />
           <button
             onClick={() => go('profile')}
             className={cn(
@@ -126,9 +128,12 @@ export default function Layout({ user, children, activeTab, onNavigate }: Props)
               Prima<span className="text-brand-600">Clean</span>
             </p>
           </div>
-          <button onClick={() => go('profile')} className="rounded-full" aria-label="Il mio profilo">
+          <div className="flex items-center gap-1">
+          <GuideButton variant="icon" />
+          <button onClick={() => go('profile')} className="rounded-full p-1" aria-label="Il mio profilo">
             <Avatar user={user} size="sm" className={activeTab === 'profile' ? 'ring-2 ring-brand-500 ring-offset-2' : ''} />
           </button>
+          </div>
         </div>
       </header>
 

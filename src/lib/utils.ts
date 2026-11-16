@@ -104,3 +104,28 @@ export function italianHolidays(year: number): { date: string; name: string }[] 
     { date: toISODate(addDays(easter, 1)), name: 'Lunedì dell\'Angelo' },
   ].sort((x, y) => x.date.localeCompare(y.date));
 }
+
+/** localStorage "sicuro": non va mai in errore (navigazione privata, storage bloccato…) */
+export const safeStorage = {
+  get(key: string): string | null {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      /* ignorato */
+    }
+  },
+  remove(key: string) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      /* ignorato */
+    }
+  },
+};
