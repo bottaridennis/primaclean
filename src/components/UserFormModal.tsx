@@ -8,6 +8,7 @@ import { Modal } from './ui/Modal';
 import { Switch } from './ui/Primitives';
 import { Avatar } from './ui/Avatar';
 import { useToast } from './ui/Toast';
+import { InfoTip } from './ui/InfoTip';
 
 interface Props {
   user: User | null;
@@ -103,7 +104,10 @@ export default function UserFormModal({ user, shops, mode, onClose }: Props) {
           </div>
 
           <fieldset>
-            <legend className="field-label">Negozi assegnati</legend>
+            <legend className="field-label flex items-center gap-1">
+              Negozi in cui lavora
+              <InfoTip align="left">Il dipendente vedrà solo i turni di questi negozi e potrai metterlo in turno solo qui. Puoi sceglierne più di uno.</InfoTip>
+            </legend>
             {shops.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">
                 Non ci sono ancora negozi. Creane uno dalla sezione «Negozi e chiusure».

@@ -9,6 +9,8 @@ import type { Shop } from '../types';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { EmptyState, PageHeader, Spinner } from './ui/Primitives';
 import { useToast } from './ui/Toast';
+import { HELP } from '../lib/help';
+import { InfoTip } from './ui/InfoTip';
 
 export default function ShopManager() {
   const toast = useToast();
@@ -73,6 +75,7 @@ export default function ShopManager() {
       <PageHeader
         title="Negozi e chiusure"
         description="Gestisci i punti vendita e i giorni di chiusura: nei giorni chiusi non si possono assegnare turni."
+        help={HELP.shops}
       />
 
       <form onSubmit={createShop} className="card p-4 sm:p-5 flex flex-col sm:flex-row gap-3 mb-6">
@@ -231,6 +234,7 @@ function ShopCard({ shop, staffCount, onDelete }: { shop: Shop; staffCount: numb
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-bold text-slate-700 flex items-center gap-2">
             <CalendarOff size={16} className="text-rose-500" /> Giorni di chiusura
+            <InfoTip align="left">Nei giorni di chiusura il negozio appare «Chiuso» nell'agenda e nel Planner non si possono assegnare turni. Le chiusure passate vengono nascoste in automatico.</InfoTip>
           </p>
           <button className="btn btn-ghost btn-sm text-brand-700" onClick={addNational}>
             <Flag size={15} /> Festività nazionali

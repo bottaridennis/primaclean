@@ -16,6 +16,7 @@ import EmployeeSchedule from './components/EmployeeSchedule';
 import EmployeeManager from './components/EmployeeManager';
 import ExchangeLogs from './components/ExchangeLogs';
 import Profile from './components/Profile';
+import { GuideProvider } from './components/onboarding/Guide';
 import { firebaseErrorMessage } from './lib/utils';
 
 /** Tab corrente sincronizzata con l'hash dell'URL (#/turni ...) */
@@ -140,6 +141,7 @@ function AppContent() {
   const activeTab = (allowed.includes(rawTab as TabId) ? rawTab : fallback) as TabId;
 
   return (
+    <GuideProvider user={user} onNavigate={navigate}>
     <Layout user={user} activeTab={activeTab} onNavigate={navigate}>
       <AnimatePresence mode="wait">
         <motion.div
@@ -159,6 +161,7 @@ function AppContent() {
         </motion.div>
       </AnimatePresence>
     </Layout>
+    </GuideProvider>
   );
 }
 
@@ -198,10 +201,32 @@ function StatusScreen({
         <h1 className="text-xl font-extrabold text-brand-950">{title}</h1>
         <p className="mt-2 text-[15px] text-slate-500 leading-relaxed">{message}</p>
         {tone === 'warning' && (
-          <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
-            <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
-            In revisione
-          </div>
+          <>
+            <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
+              <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
+              In revisione
+            </div>
+            <ol className="mt-6 space-y-3 text-left text-sm text-slate-600">
+              {[
+                ['Registrazione completata', true],
+                ['Il responsabile approva il tuo profilo e sceglie il tuo negozio', false],
+                ['Vedi i tuoi turni: non serve ricaricare la pagina', false],
+              ].map(([t, done], i) => (
+                <li key={i} className="flex gap-3">
+                  <span
+                    className={
+                      'size-6 shrink-0 rounded-full text-xs font-bold flex items-center justify-center ' +
+                      (done ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500')
+                    }
+                  >
+                    {done ? '✓' : i + 1}
+                  </span>
+                  <span className={done ? 'text-slate-400 line-through' : ''}>{t}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-5 text-[13px] text-slate-400">Ci vuole troppo? Avvisa il tuo responsabile che ti sei registrato.</p>
+          </>
         )}
         <button onClick={() => auth.signOut()} className="btn btn-secondary w-full mt-8">
           <LogOut size={18} /> Esci

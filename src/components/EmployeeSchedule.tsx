@@ -10,6 +10,7 @@ import type { Shift, User } from '../types';
 import { EmptyState, PageHeader, PillTabs, Segmented, Spinner } from './ui/Primitives';
 import PendingExchanges from './PendingExchanges';
 import ShiftExchangeModal from './ShiftExchangeModal';
+import { HELP, goTo } from '../lib/help';
 
 interface Props {
   user: User;
@@ -88,7 +89,8 @@ export default function EmployeeSchedule({ user }: Props) {
           <EmptyState
             icon={Store}
             title={isAdmin ? 'Nessun negozio configurato' : 'Non sei ancora assegnato a un negozio'}
-            description={isAdmin ? 'Crea un negozio dalla sezione «Negozi e chiusure».' : 'Contatta il tuo responsabile per essere assegnato a un punto vendita.'}
+            description={isAdmin ? 'Crea un negozio dalla sezione «Negozi e chiusure».' : 'Il tuo account è attivo, ma il responsabile non ti ha ancora collegato a un negozio. Chiedigli di farlo: poi i turni compariranno qui da soli.'}
+            action={isAdmin ? <button className="btn btn-primary" onClick={() => goTo('shops')}>Vai a Negozi e chiusure</button> : undefined}
           />
         </div>
       </div>
@@ -100,6 +102,7 @@ export default function EmployeeSchedule({ user }: Props) {
       <PageHeader
         title={isAdmin ? 'Agenda negozi' : `Ciao, ${user.nome}`}
         description={isAdmin ? 'Vista settimanale dei turni per ogni punto vendita.' : 'Ecco la tua agenda di lavoro.'}
+        help={isAdmin ? HELP.scheduleAdmin : HELP.scheduleEmployee}
       />
 
       {/* Prossimo turno */}

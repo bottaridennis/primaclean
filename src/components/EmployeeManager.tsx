@@ -11,6 +11,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog';
 import { EmptyState, PageHeader, PillTabs, Spinner } from './ui/Primitives';
 import { useToast } from './ui/Toast';
 import UserFormModal from './UserFormModal';
+import { HELP } from '../lib/help';
 
 type Filter = 'all' | 'employee' | 'admin' | 'blocked' | 'pending';
 
@@ -112,7 +113,7 @@ export default function EmployeeManager({ currentUser }: { currentUser: User }) 
 
   return (
     <div>
-      <PageHeader title="Personale" description="Gestisci accessi, ruoli e negozi assegnati a ogni collaboratore." />
+      <PageHeader title="Personale" description="Gestisci accessi, ruoli e negozi assegnati a ogni collaboratore." help={HELP.staff} />
 
       <div className="flex flex-col gap-3 mb-5">
         <div className="flex flex-col sm:flex-row gap-3">
@@ -211,14 +212,14 @@ export default function EmployeeManager({ currentUser }: { currentUser: User }) 
                   )}
                 </div>
 
-                <div className="mt-auto pt-3 border-t border-slate-100 flex items-center gap-1">
+                <div className="mt-auto pt-3 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
                   {isPending ? (
                     <>
                       <button className="btn btn-primary btn-sm flex-1" onClick={() => setEditing({ user: u, mode: 'approve' })}>
-                        Approva
+                        <CheckCircle2 size={15} /> Approva
                       </button>
-                      <button className="btn-icon hover:text-rose-600 hover:bg-rose-50" onClick={() => setConfirm({ kind: 'delete', user: u })} aria-label="Rifiuta">
-                        <Trash2 size={17} />
+                      <button className="btn btn-secondary btn-sm hover:text-rose-600 hover:border-rose-200" onClick={() => setConfirm({ kind: 'delete', user: u })}>
+                        <X size={15} /> Rifiuta
                       </button>
                     </>
                   ) : (
@@ -226,33 +227,28 @@ export default function EmployeeManager({ currentUser }: { currentUser: User }) 
                       <button className="btn btn-secondary btn-sm" onClick={() => setEditing({ user: u, mode: 'edit' })}>
                         <Pencil size={15} /> Modifica
                       </button>
-                      <div className="flex-1" />
-                      {!isMe && (
+                      {isMe ? (
+                        <span className="text-[13px] text-slate-400 px-1">Non puoi sospendere o eliminare te stesso.</span>
+                      ) : (
                         <>
-                          {u.role === 'employee' ? (
-                            <button className="btn-icon" title="Promuovi ad amministratore" aria-label="Promuovi ad amministratore" onClick={() => setConfirm({ kind: 'promote', user: u })}>
-                              <ShieldCheck size={18} />
-                            </button>
-                          ) : (
-                            <button className="btn-icon" title="Revoca permessi admin" aria-label="Revoca permessi admin" onClick={() => setConfirm({ kind: 'demote', user: u })}>
-                              <ShieldOff size={18} />
-                            </button>
-                          )}
                           <button
-                            className={cn('btn-icon', u.isBlocked ? 'text-emerald-600 hover:bg-emerald-50' : 'hover:text-amber-700 hover:bg-amber-50')}
-                            title={u.isBlocked ? 'Riattiva accesso' : 'Sospendi accesso'}
-                            aria-label={u.isBlocked ? 'Riattiva accesso' : 'Sospendi accesso'}
+                            className={cn('btn btn-ghost btn-sm', u.isBlocked ? 'text-emerald-700 hover:bg-emerald-50' : 'hover:text-amber-700 hover:bg-amber-50')}
                             onClick={() => setConfirm({ kind: 'block', user: u })}
                           >
-                            {u.isBlocked ? <CheckCircle2 size={18} /> : <Ban size={18} />}
+                            {u.isBlocked ? <CheckCircle2 size={15} /> : <Ban size={15} />}
+                            {u.isBlocked ? 'Riattiva' : 'Sospendi'}
                           </button>
-                          <button
-                            className="btn-icon hover:text-rose-600 hover:bg-rose-50"
-                            title="Elimina profilo"
-                            aria-label="Elimina profilo"
-                            onClick={() => setConfirm({ kind: 'delete', user: u })}
-                          >
-                            <Trash2 size={18} />
+                          {u.role === 'employee' ? (
+                            <button className="btn btn-ghost btn-sm" onClick={() => setConfirm({ kind: 'promote', user: u })}>
+                              <ShieldCheck size={15} /> Rendi admin
+                            </button>
+                          ) : (
+                            <button className="btn btn-ghost btn-sm" onClick={() => setConfirm({ kind: 'demote', user: u })}>
+                              <ShieldOff size={15} /> Togli admin
+                            </button>
+                          )}
+                          <button className="btn btn-ghost btn-sm hover:text-rose-600 hover:bg-rose-50" onClick={() => setConfirm({ kind: 'delete', user: u })}>
+                            <Trash2 size={15} /> Elimina
                           </button>
                         </>
                       )}
